@@ -1,0 +1,5 @@
+# YOLO weights and generated outputs
+weights/
+*.pt
+outputs/*
+!outputs/.gitkeep

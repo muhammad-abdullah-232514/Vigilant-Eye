@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+@theme {
+  --color-au-navy: #0b1f3a;
+  --color-au-navy-deep: #071526;
+  --color-au-blue: #1a4b8c;
+  --color-au-accent: #2563eb;
+  --color-au-surface: #f3f5f9;
+  --color-au-border: #d8dee9;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background: var(--color-au-surface);
+  color: #0f172a;
+}

@@ -1,0 +1,19 @@
+# Environment variables / secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+venv/
+
+# IDE
+.vscode/
+
+# Logs
+*.log
+
+# Uploaded evidence files (keep folder, ignore contents)
+uploads/evidence/*
+!uploads/evidence/.gitkeep
