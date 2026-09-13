@@ -9,7 +9,8 @@ runs/*
 # Dataset media (keep folder structure + yaml)
 dataset/ufm/images/**/*
 !dataset/ufm/images/**/.gitkeep
-dataset/ufm/labels/**/*.txt
+dataset/ufm/labels/
 !dataset/ufm/labels/**/.gitkeep
 dataset/ufm/dataset/
+dataset/ufm/_data_resolved.yaml
 dataset/_extracted_frames/
