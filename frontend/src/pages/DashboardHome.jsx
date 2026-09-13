@@ -186,33 +186,53 @@ export default function DashboardHome() {
               <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm xl:col-span-2">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="text-lg font-semibold text-au-navy">
-                    Cameras (prototype tiles)
+                    Registered Cameras
                   </h2>
-                  <span className="text-xs text-slate-400">
-                    No live RTSP yet — names from API
-                  </span>
+                  <Link
+                    to="/app/monitoring"
+                    className="text-xs font-semibold text-au-blue"
+                  >
+                    Open Live Monitoring
+                  </Link>
                 </div>
                 {cameras.length === 0 ? (
                   <p className="text-sm text-slate-500">
-                    No cameras registered.
+                    No cameras yet. Run{" "}
+                    <code className="rounded bg-slate-100 px-1 text-xs">
+                      python seed_demo_cameras.py
+                    </code>{" "}
+                    or add them in Master Data, then open{" "}
+                    <Link
+                      to="/app/monitoring"
+                      className="font-semibold text-au-blue"
+                    >
+                      Live Monitoring
+                    </Link>
+                    .
                   </p>
                 ) : (
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {cameras.slice(0, 6).map((cam) => (
-                      <div
+                      <Link
                         key={cam.id}
-                        className="overflow-hidden rounded-xl border border-slate-200 bg-slate-900"
+                        to="/app/monitoring"
+                        className="overflow-hidden rounded-xl border border-slate-200 bg-slate-900 transition hover:ring-2 hover:ring-au-blue/40"
                       >
-                        <div className="flex h-28 items-center justify-center bg-gradient-to-br from-slate-800 to-slate-950 text-slate-400">
-                          CCTV feed (sim)
+                        <div className="flex h-28 flex-col items-center justify-center gap-1 bg-gradient-to-br from-slate-800 to-slate-950 px-3 text-center text-slate-400">
+                          <span className="text-xs font-medium text-slate-300">
+                            {cam.name}
+                          </span>
+                          <span className="text-[10px] text-slate-500">
+                            Go live →
+                          </span>
                         </div>
                         <div className="flex items-center justify-between bg-white px-3 py-2 text-sm">
                           <div>
                             <p className="font-medium text-au-navy">
-                              {cam.name}
-                            </p>
-                            <p className="text-xs text-slate-500">
                               {cam.camera_id}
+                            </p>
+                            <p className="truncate text-xs text-slate-500">
+                              {cam.stream_url}
                             </p>
                           </div>
                           <span
@@ -221,10 +241,10 @@ export default function DashboardHome() {
                               cam.is_active ? "bg-emerald-500" : "bg-rose-500",
                             ].join(" ")}
                           >
-                            {cam.is_active ? "LIVE" : "OFF"}
+                            {cam.is_active ? "READY" : "OFF"}
                           </span>
                         </div>
-                      </div>
+                      </Link>
                     ))}
                   </div>
                 )}
@@ -245,7 +265,14 @@ export default function DashboardHome() {
                   </div>
                   {recentDetections.length === 0 ? (
                     <p className="text-sm text-slate-500">
-                      No confirmed detections yet.
+                      No confirmed detections yet. Run{" "}
+                      <Link
+                        to="/app/monitoring"
+                        className="font-semibold text-au-blue"
+                      >
+                        Live Monitoring
+                      </Link>{" "}
+                      with Persist checked.
                     </p>
                   ) : (
                     <ul className="space-y-3">

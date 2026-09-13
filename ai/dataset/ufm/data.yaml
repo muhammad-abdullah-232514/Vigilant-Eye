@@ -1,0 +1,11 @@
+# VigilantEye UFM dataset (imported from Roboflow)
+path: .
+train: images/train
+val: images/val
+names:
+  0: mobile_phone
+  1: smart_watch
+  2: notes_paper
+  3: suspicious_object
+  4: non_cheating
+  5: hand_normal

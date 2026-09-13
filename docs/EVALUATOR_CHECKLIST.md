@@ -35,9 +35,9 @@ Detailed steps: [DEMO_RUNBOOK.md](DEMO_RUNBOOK.md) · Project overview: [../READ
 
 | # | Check | Pass |
 |---|--------|------|
-| 13 | Cameras labeled PROTOTYPE (no RTSP) | ☐ |
-| 14 | YOLO described as PoC | ☐ |
-| 15 | Email / live video / custom ML = FUTURE | ☐ |
+| 13 | Live Monitoring shown (webcam / sample clip / RTSP URL) | ☐ |
+| 14 | YOLO described honestly (custom train / COCO fallback) | ☐ |
+| 15 | Email / WebRTC mesh / full SIS = FUTURE | ☐ |
 
 ---
 

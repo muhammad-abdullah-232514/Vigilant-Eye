@@ -1,15 +1,14 @@
 """
-VigilantEye — YOLO proof-of-concept detector (PROTOTYPE).
+VigilantEye — YOLO detector (custom UFM weights preferred, COCO fallback).
 
 Usage (from project root, with backend venv active):
   cd "D:\\BS CS\\Vigilant Eye"
   .\\backend\\venv\\Scripts\\Activate.ps1
   python ai/test_detector.py --source ai/samples/bus.jpg
 
-Honest limits:
-  Pretrained YOLOv8 (COCO) can detect common objects such as person / cell phone.
-  It does NOT fully cover all UFM behaviors (notes, paper exchange, smart watch,
-  suspicious hand/head movement) without custom training / extra models.
+Weight selection (automatic unless --weights given):
+  1. ai/runs/train/ufm_custom/weights/best.pt  (after train_yolo.py)
+  2. ai/weights/yolov8n.pt                     (pretrained COCO PoC)
 """
 
 from __future__ import annotations
@@ -20,10 +19,12 @@ from pathlib import Path
 
 from ultralytics import YOLO
 
+from ufm_classes import is_ufm_watchlist, normalize_label, resolve_weights, to_violation_type
+
 
 def parse_args() -> argparse.Namespace:
     root = Path(__file__).resolve().parent
-    parser = argparse.ArgumentParser(description="VigilantEye YOLO PoC detector")
+    parser = argparse.ArgumentParser(description="VigilantEye YOLO detector")
     parser.add_argument(
         "--source",
         type=str,
@@ -33,8 +34,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--weights",
         type=str,
-        default=str(root / "weights" / "yolov8n.pt"),
-        help="YOLO weights (downloaded automatically on first run if missing)",
+        default=None,
+        help="Force a weights file (default: custom best.pt if present, else COCO)",
     )
     parser.add_argument(
         "--conf",
@@ -60,20 +61,26 @@ def main() -> None:
     if not source.exists():
         raise FileNotFoundError(f"Source not found: {source}")
 
+    weights, mode = resolve_weights(args.weights)
+
     print("=" * 60)
-    print("VigilantEye YOLO PoC")
+    print("VigilantEye YOLO detector")
     print(f"time     : {datetime.now(timezone.utc).isoformat()}")
     print(f"source   : {source}")
-    print(f"weights  : {args.weights}")
+    print(f"weights  : {weights}")
+    print(f"mode     : {mode}")
     print(f"conf     : {args.conf}")
     print("=" * 60)
-    print(
-        "NOTE: Pretrained COCO model ≠ full UFM detector. "
-        "Custom training / MediaPipe may be required for exam-specific behaviors."
-    )
+    if mode == "coco":
+        print(
+            "NOTE: Using pretrained COCO weights (no custom best.pt yet). "
+            "Train with: python ai/train_yolo.py"
+        )
+    elif mode == "custom":
+        print("Using custom UFM-trained weights.")
     print()
 
-    model = YOLO(args.weights)
+    model = YOLO(str(weights))
     results = model.predict(
         source=str(source),
         conf=args.conf,
@@ -82,6 +89,7 @@ def main() -> None:
     )
 
     total = 0
+    ufm_hits = 0
     for i, result in enumerate(results):
         names = result.names
         boxes = result.boxes
@@ -92,9 +100,19 @@ def main() -> None:
             for box in boxes:
                 cls_id = int(box.cls[0].item())
                 conf = float(box.conf[0].item())
-                label = names.get(cls_id, str(cls_id))
+                raw = names.get(cls_id, str(cls_id))
+                normalized = normalize_label(raw)
+                violation = to_violation_type(raw)
+                watch = is_ufm_watchlist(raw)
                 total += 1
-                print(f"  class={label:15} confidence={conf:.3f}")
+                if watch:
+                    ufm_hits += 1
+                print(
+                    f"  class={raw:18} -> {normalized:18} "
+                    f"violation={violation or '—':18} "
+                    f"conf={conf:.3f}"
+                    f"{'  [UFM]' if watch else ''}"
+                )
 
         stem = source.stem
         out_path = outdir / f"{stem}_annotated_{i}.jpg"
@@ -102,7 +120,7 @@ def main() -> None:
         print(f"Annotated output: {out_path}")
 
     print()
-    print(f"Total detections: {total}")
+    print(f"Total detections: {total}  (UFM-mapped: {ufm_hits})")
     print("Done.")
 
 

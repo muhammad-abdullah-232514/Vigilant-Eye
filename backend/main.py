@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -35,14 +36,23 @@ from schemas.exam_room import ExamRoomCreate, ExamRoomOut
 from schemas.evidence import EvidenceOut
 from schemas.notification import NotificationOut
 from schemas.result_control import ResultControlCreate, ResultControlOut
-from schemas.student import StudentCreate, StudentOut
+from schemas.student import StudentCreate, StudentLinkUser, StudentOut
 from schemas.ufm_case import UfmCaseCreate, UfmCaseOut
 from schemas.user import UserCreate, UserOut
 from security import create_access_token, hash_password, verify_password
-from student_portal import DEMO_STUDENT_ROLL, resolve_linked_student
+from student_portal import resolve_linked_student
+from routers.live import router as live_router
 from workflow import next_status
 
 app = FastAPI(title="VigilantEye API", version="0.1.0")
+app.include_router(live_router)
+
+
+@app.on_event("shutdown")
+def _stop_live_sessions() -> None:
+    from live_stream import live_manager
+
+    live_manager.stop_all()
 
 # Allow local React/Vite frontend (Day 5) to call this API
 app.add_middleware(
@@ -182,8 +192,40 @@ def read_current_user(current_user: User = Depends(get_current_user)):
 def create_user(
     user_in: UserCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("EXAM_DEPARTMENT", "HOD")),
+    current_user: User = Depends(
+        require_roles("EXAM_DEPARTMENT", "HOD", "INVIGILATOR")
+    ),
 ):
+    role = user_in.role.strip().upper()
+    # Invigilators may only register STUDENT portal accounts
+    if current_user.role == "INVIGILATOR" and role != "STUDENT":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invigilators can only create STUDENT portal users",
+        )
+    # Staff portal accounts require HOD or Exam Department
+    if role != "STUDENT" and current_user.role not in {
+        "HOD",
+        "EXAM_DEPARTMENT",
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only HOD or Exam Department can create staff portal users",
+        )
+    allowed_roles = {
+        "STUDENT",
+        "INVIGILATOR",
+        "HOD",
+        "DEC",
+        "EXAM_DEPARTMENT",
+        "UFM_COMMITTEE",
+    }
+    if role not in allowed_roles:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid role. Allowed: {', '.join(sorted(allowed_roles))}",
+        )
+
     existing = db.scalar(select(User).where(User.email == user_in.email))
     if existing:
         raise HTTPException(
@@ -193,9 +235,9 @@ def create_user(
 
     user = User(
         name=user_in.name,
-        email=user_in.email,
+        email=str(user_in.email).lower(),
         password_hash=hash_password(user_in.password),
-        role=user_in.role,
+        role=role,
     )
     db.add(user)
     db.commit()
@@ -205,10 +247,38 @@ def create_user(
 
 @app.get("/users", response_model=list[UserOut])
 def list_users(
+    role: str | None = None,
+    unlinked_students_only: bool = False,
+    staff_only: bool = False,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        require_roles(
+            "INVIGILATOR",
+            "HOD",
+            "DEC",
+            "EXAM_DEPARTMENT",
+            "UFM_COMMITTEE",
+        )
+    ),
 ):
-    users = db.scalars(select(User).order_by(User.id)).all()
+    query = select(User).order_by(User.id)
+    if role:
+        query = query.where(User.role == role.strip().upper())
+    users = list(db.scalars(query).all())
+
+    if staff_only:
+        users = [u for u in users if u.role != "STUDENT"]
+
+    if unlinked_students_only:
+        linked_ids = set(
+            db.scalars(
+                select(Student.user_id).where(Student.user_id.is_not(None))
+            ).all()
+        )
+        users = [
+            u for u in users if u.role == "STUDENT" and u.id not in linked_ids
+        ]
+
     return users
 
 
@@ -225,6 +295,31 @@ def get_user(
             detail="User not found",
         )
     return user
+
+
+def _validate_student_portal_user(db: Session, user_id: int | None) -> None:
+    """Ensure user_id is a STUDENT role user and not already linked elsewhere."""
+    if user_id is None:
+        return
+    portal_user = db.get(User, user_id)
+    if portal_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Portal user not found for user_id",
+        )
+    if portal_user.role != "STUDENT":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only users with role STUDENT can be linked to a student profile",
+        )
+    taken = db.scalar(
+        select(Student).where(Student.user_id == user_id)
+    )
+    if taken is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"user_id already linked to student roll {taken.student_id}",
+        )
 
 
 @app.post("/students", response_model=StudentOut, status_code=status.HTTP_201_CREATED)
@@ -244,11 +339,14 @@ def create_student(
             detail="Student ID already registered",
         )
 
+    _validate_student_portal_user(db, student_in.user_id)
+
     student = Student(
         student_id=student_in.student_id,
         name=student_in.name,
         department=student_in.department,
         program=student_in.program,
+        user_id=student_in.user_id,
     )
     db.add(student)
     db.commit()
@@ -263,6 +361,54 @@ def list_students(
 ):
     students = db.scalars(select(Student).order_by(Student.id)).all()
     return students
+
+
+@app.patch("/students/{student_pk}/link-user", response_model=StudentOut)
+def link_student_user(
+    student_pk: int,
+    body: StudentLinkUser,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_roles("HOD", "EXAM_DEPARTMENT", "INVIGILATOR")
+    ),
+):
+    """Attach or clear the portal login for a student (replaces DEMO001 hardcode)."""
+    student = db.get(Student, student_pk)
+    if student is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Student not found",
+        )
+
+    if body.user_id is not None:
+        # Allow re-linking the same student to the same user without conflict
+        other = db.scalar(
+            select(Student).where(
+                Student.user_id == body.user_id,
+                Student.id != student.id,
+            )
+        )
+        if other is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"user_id already linked to student roll {other.student_id}",
+            )
+        portal_user = db.get(User, body.user_id)
+        if portal_user is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Portal user not found for user_id",
+            )
+        if portal_user.role != "STUDENT":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only users with role STUDENT can be linked",
+            )
+
+    student.user_id = body.user_id
+    db.commit()
+    db.refresh(student)
+    return student
 
 
 @app.post("/exam-rooms", response_model=ExamRoomOut, status_code=status.HTTP_201_CREATED)
@@ -695,6 +841,36 @@ def list_evidence(
     return db.scalars(query).all()
 
 
+@app.get("/evidence/{evidence_id}/file")
+def download_evidence_file(
+    evidence_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Serve an uploaded evidence file (auth required)."""
+    _ = current_user
+    row = db.get(Evidence, evidence_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+
+    backend_root = Path(__file__).resolve().parent
+    stored = Path(row.file_path)
+    # Accept DB relative paths like uploads/evidence/...
+    candidates = [
+        stored if stored.is_absolute() else backend_root / stored,
+        backend_root / "uploads" / "evidence" / stored.name,
+    ]
+    path = next((p for p in candidates if p.is_file()), None)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Evidence file missing on disk")
+
+    return FileResponse(
+        path,
+        filename=path.name,
+        media_type="application/octet-stream",
+    )
+
+
 @app.get("/audit-logs", response_model=list[AuditLogOut])
 def list_audit_logs(
     db: Session = Depends(get_db),
@@ -906,7 +1082,8 @@ def submit_clarification(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"No linked student profile. Seed demo student roll {DEMO_STUDENT_ROLL}."
+                "No student profile linked to this account. "
+                "Ask staff to set students.user_id (run seed_demo_users.py for demo)."
             ),
         )
 

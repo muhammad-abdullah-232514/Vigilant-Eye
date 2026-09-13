@@ -109,8 +109,9 @@ export default function ClarificationPage() {
 
       {cases.length === 0 ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          No cases linked to your student profile yet. Ask an invigilator to
-          create a case for roll <strong>DEMO001</strong> (demo student).
+          No cases linked to your student profile yet. Your portal account must
+          be linked via <code>students.user_id</code>, then an invigilator
+          creates a case for your roll (demo: <strong>DEMO001</strong>).
         </div>
       ) : (
         <form

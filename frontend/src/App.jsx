@@ -12,11 +12,13 @@ import ClarificationPage from "./pages/ClarificationPage";
 import EvidencePage from "./pages/EvidencePage";
 import HelpPage from "./pages/HelpPage";
 import Login from "./pages/Login";
+import MasterDataPage from "./pages/MasterDataPage";
 import MonitoringPage from "./pages/MonitoringPage";
 import NotificationsPage from "./pages/NotificationsPage";
 import ReportsPage from "./pages/ReportsPage";
 import ResultControlsPage from "./pages/ResultControlsPage";
 import StudentsPage from "./pages/StudentsPage";
+import UsersPage from "./pages/UsersPage";
 
 export default function App() {
   const { isAuthenticated, loading } = useAuth();
@@ -53,6 +55,8 @@ export default function App() {
         <Route path="detections" element={<DetectionsPage />} />
         <Route path="evidence" element={<EvidencePage />} />
         <Route path="students" element={<StudentsPage />} />
+        <Route path="users" element={<UsersPage />} />
+        <Route path="master-data" element={<MasterDataPage />} />
         <Route path="result-controls" element={<ResultControlsPage />} />
         <Route path="audit" element={<AuditTrailPage />} />
         <Route path="monitoring" element={<MonitoringPage />} />

@@ -18,17 +18,37 @@ from models.student import Student
 from models.ufm_case import UfmCase
 from models.user import User
 
-# Classes that may auto-draft a case when --auto-draft is used.
-# "suitcase" is only a DEMO stand-in because pretrained YOLO often misses phones.
+# Classes / aliases that may auto-draft a case when --auto-draft is used.
 UFM_AUTO_DRAFT_CLASSES = {
+    "mobile_phone",
+    "smart_watch",
+    "notes_paper",
+    "electronic_gadget",
+    "suspicious_object",
     "cell phone",
+    "cellphone",
+    "phone",
     "suitcase",
+    "book",
+    "laptop",
 }
 
 VIOLATION_TYPE_MAP = {
+    "mobile_phone": "MOBILE_PHONE",
+    "smart_watch": "SMART_WATCH",
+    "notes_paper": "NOTES_PAPER",
+    "electronic_gadget": "ELECTRONIC_GADGET",
+    "suspicious_object": "SUSPICIOUS_OBJECT",
     "cell phone": "MOBILE_PHONE",
+    "cellphone": "MOBILE_PHONE",
+    "phone": "MOBILE_PHONE",
     "suitcase": "SUSPICIOUS_OBJECT",
-    "person": "SUSPICIOUS_BEHAVIOR",
+    "handbag": "SUSPICIOUS_OBJECT",
+    "backpack": "SUSPICIOUS_OBJECT",
+    "book": "NOTES_PAPER",
+    "laptop": "ELECTRONIC_GADGET",
+    "keyboard": "ELECTRONIC_GADGET",
+    "person": "OTHER",
 }
 
 

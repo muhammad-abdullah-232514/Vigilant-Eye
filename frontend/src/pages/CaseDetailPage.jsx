@@ -9,6 +9,7 @@ import {
   fetchCaseReviews,
   fetchClarifications,
   fetchEvidence,
+  openEvidenceFile,
 } from "../services/api";
 
 export default function CaseDetailPage() {
@@ -280,11 +281,30 @@ export default function CaseDetailPage() {
           <ul className="divide-y divide-slate-100">
             {evidence.map((e) => (
               <li key={e.id} className="px-5 py-3 text-sm">
-                <p className="font-medium text-au-navy">{e.evidence_type}</p>
-                <p className="text-slate-600">{e.file_path}</p>
-                <p className="text-xs text-slate-400">
-                  {e.created_at ? new Date(e.created_at).toLocaleString() : ""}
-                </p>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="font-medium text-au-navy">{e.evidence_type}</p>
+                    <p className="truncate text-xs text-slate-500">{e.file_path}</p>
+                    <p className="text-xs text-slate-400">
+                      {e.created_at
+                        ? new Date(e.created_at).toLocaleString()
+                        : ""}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-au-blue hover:underline"
+                    onClick={async () => {
+                      try {
+                        await openEvidenceFile(e.id);
+                      } catch (err) {
+                        setError(err.message || "Could not open evidence");
+                      }
+                    }}
+                  >
+                    Open file
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

@@ -43,6 +43,20 @@ export default function Login() {
     setFormError("");
   }
 
+  async function signInAs(accountEmail) {
+    fillDemo(accountEmail);
+    setSubmitting(true);
+    setFormError("");
+    try {
+      await login(accountEmail, "Demo@123");
+      navigate("/app/dashboard", { replace: true });
+    } catch (err) {
+      setFormError(err.message || "Login failed");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-au-surface">
       <section className="relative hidden lg:flex flex-col justify-between bg-au-navy text-white p-12 overflow-hidden">
@@ -62,21 +76,25 @@ export default function Login() {
         </div>
         <div className="relative z-10 grid gap-2 text-sm text-slate-200">
           <p className="font-medium text-white">
-            Demo accounts — click to fill (password: Demo@123)
+            Demo accounts — click to sign in (password: Demo@123)
           </p>
           <div className="grid grid-cols-2 gap-2">
             {DEMO_ACCOUNTS.map((item) => (
               <button
                 key={item.email}
                 type="button"
-                onClick={() => fillDemo(item.email)}
-                className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-left transition hover:bg-white/15"
+                disabled={submitting}
+                onClick={() => signInAs(item.email)}
+                className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-left transition hover:bg-white/15 disabled:opacity-50"
               >
                 <span className="block font-semibold text-white">{item.role}</span>
                 <span className="text-xs text-slate-300">{item.email}</span>
               </button>
             ))}
           </div>
+          <p className="text-xs text-slate-400">
+            Tip: start with Invigilator → Live Monitoring → Create Case → HOD.
+          </p>
         </div>
       </section>
 
@@ -138,15 +156,16 @@ export default function Login() {
 
           <div className="mt-6 grid gap-2 lg:hidden">
             <p className="text-center text-xs text-slate-400">
-              Demo password: Demo@123 — tap a role to fill email
+              Demo password: Demo@123 — tap a role to sign in
             </p>
             <div className="flex flex-wrap justify-center gap-2">
               {DEMO_ACCOUNTS.map((item) => (
                 <button
                   key={item.email}
                   type="button"
-                  onClick={() => fillDemo(item.email)}
-                  className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700"
+                  disabled={submitting}
+                  onClick={() => signInAs(item.email)}
+                  className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
                 >
                   {item.role}
                 </button>

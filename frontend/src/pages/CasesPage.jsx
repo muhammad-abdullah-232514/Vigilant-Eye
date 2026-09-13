@@ -65,7 +65,7 @@ export default function CasesPage() {
           ) : null}
           {isStudent ? (
             <p className="mt-1 text-sm text-slate-500">
-              Showing cases linked to your student profile (roll DEMO001).
+              Showing cases for the student profile linked to your login.
             </p>
           ) : null}
         </div>
@@ -128,7 +128,7 @@ export default function CasesPage() {
                   <td className="px-4 py-6 text-slate-500" colSpan={6}>
                     No cases{statusFilter ? ` with status ${statusFilter}` : ""}.
                     {isStudent
-                      ? " Create a case for roll DEMO001 while logged in as invigilator."
+                      ? " Ask staff to link your account, then create a case for your roll."
                       : ""}
                   </td>
                 </tr>

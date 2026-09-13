@@ -87,8 +87,8 @@ export default function HelpPage() {
       </section>
 
       <p className="text-xs text-slate-400">
-        Demo link: portal user <code>student@demo.com</code> maps to student roll{" "}
-        <code>DEMO001</code>.
+        Demo link: <code>student@demo.com</code> linked to roll <code>DEMO001</code> via{" "}
+        <code>students.user_id</code> (seed script).
       </p>
     </div>
   );

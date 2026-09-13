@@ -3,3 +3,13 @@ weights/
 *.pt
 outputs/*
 !outputs/.gitkeep
+runs/*
+!runs/.gitkeep
+
+# Dataset media (keep folder structure + yaml)
+dataset/ufm/images/**/*
+!dataset/ufm/images/**/.gitkeep
+dataset/ufm/labels/**/*.txt
+!dataset/ufm/labels/**/.gitkeep
+dataset/ufm/dataset/
+dataset/_extracted_frames/

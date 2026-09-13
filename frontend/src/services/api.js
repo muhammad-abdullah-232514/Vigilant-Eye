@@ -119,6 +119,30 @@ export async function uploadEvidence(formData) {
   });
 }
 
+/** Authenticated evidence file URL for <a href> / window.open with token query. */
+export function evidenceFileUrl(evidenceId) {
+  const token = getToken() || "";
+  const params = new URLSearchParams({ token });
+  // Prefer Bearer via fetch blob helper for browsers that ignore query auth
+  return `${API_URL}/evidence/${evidenceId}/file?${params.toString()}`;
+}
+
+export async function openEvidenceFile(evidenceId) {
+  const token = getToken();
+  const response = await fetch(`${API_URL}/evidence/${evidenceId}/file`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to open evidence (${response.status})`);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank", "noopener,noreferrer");
+  // Revoke later to avoid leaking memory
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 export async function fetchResultControls() {
   return apiRequest("/result-controls");
 }
@@ -147,6 +171,89 @@ export async function submitClarification(payload) {
 
 export async function fetchAuditLogs() {
   return apiRequest("/audit-logs");
+}
+
+export async function fetchUsers(
+  role = null,
+  { unlinkedStudentsOnly = false, staffOnly = false } = {}
+) {
+  const params = new URLSearchParams();
+  if (role) params.set("role", role);
+  if (unlinkedStudentsOnly) params.set("unlinked_students_only", "true");
+  if (staffOnly) params.set("staff_only", "true");
+  const query = params.toString() ? `?${params}` : "";
+  return apiRequest(`/users${query}`);
+}
+
+export async function createUser(payload) {
+  return apiRequest("/users", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchExamRooms() {
+  return apiRequest("/exam-rooms");
+}
+
+export async function createExamRoom(payload) {
+  return apiRequest("/exam-rooms", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createCamera(payload) {
+  return apiRequest("/cameras", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createExam(payload) {
+  return apiRequest("/exams", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createStudent(payload) {
+  return apiRequest("/students", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function linkStudentUser(studentPk, userId) {
+  return apiRequest(`/students/${studentPk}/link-user`, {
+    method: "PATCH",
+    body: JSON.stringify({ user_id: userId }),
+  });
+}
+
+export async function fetchLiveStatus() {
+  return apiRequest("/live/status");
+}
+
+export async function startLiveCamera(cameraId, payload = {}) {
+  return apiRequest(`/live/cameras/${cameraId}/start`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function stopLiveCamera(cameraId) {
+  return apiRequest(`/live/cameras/${cameraId}/stop`, {
+    method: "POST",
+  });
+}
+
+/** MJPEG URL for <img src> — token query because img cannot set Authorization. */
+export function liveMjpegUrl(cameraId, { cacheBust } = {}) {
+  const token = getToken() || "";
+  const params = new URLSearchParams({ token });
+  if (cacheBust) params.set("t", String(cacheBust));
+  return `${API_URL}/live/cameras/${cameraId}/mjpeg?${params.toString()}`;
 }
 
 export { API_URL };

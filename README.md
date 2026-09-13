@@ -49,11 +49,13 @@ cd backend
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-python seed_demo_users.py
+python seed_all_demo.py
 uvicorn main:app --reload
 ```
 
 API: http://127.0.0.1:8000 · Docs: http://127.0.0.1:8000/docs
+
+`seed_all_demo.py` creates demo users (DEMO001 link), room A-101, webcam + sample-clip cameras, and exam CS101.
 
 ### 3. Frontend
 
@@ -135,9 +137,9 @@ Use during a viva / demo. Tick as you go.
 
 ### Honesty check (prototype scope)
 
-- [ ] Team states camera tiles are **PROTOTYPE** (no live RTSP)  
-- [ ] Team states YOLO is a **PoC** (custom model / MediaPipe = FUTURE)  
-- [ ] Team states email / WebSockets / digital signatures = FUTURE  
+- [ ] Live Monitoring shown as MJPEG (webcam / sample clip / RTSP URL), not WebRTC mesh  
+- [ ] YOLO described honestly (custom train and/or COCO fallback)  
+- [ ] Email / WebSockets / digital signatures = FUTURE  
 
 ---
 
@@ -152,24 +154,24 @@ Use during a viva / demo. Tick as you go.
 | Student clarification (DEMO001 link) | Full SIS binding |
 | Result hold / release | ERP grade integration |
 | Audit log | Advanced forensics export |
-| YOLO PoC → detections | Custom training, MediaPipe, live RTSP |
+| Live MJPEG + YOLO → detections | Multi-cam WebRTC, stronger custom ML |
 
 ---
 
 ## Useful commands
 
 ```powershell
-# Seed / refresh demo users + DEMO001 student
+# Full demo seed (users + cameras + CS101)
 cd backend
 .\venv\Scripts\Activate.ps1
-python seed_demo_users.py
+python seed_all_demo.py
 
 # Frontend production build check
 cd frontend
 npm run build
 ```
 
-AI scripts live under `ai/` (see Day-4 detector / `save_confirmed_to_db.py`).
+AI scripts live under `ai/` (`train_yolo.py`, `save_confirmed_to_db.py`, Live Monitoring uses the API).
 
 ---
 

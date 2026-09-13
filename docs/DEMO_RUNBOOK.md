@@ -24,12 +24,12 @@ npm run dev
 Open: **http://127.0.0.1:5173**  
 API docs (optional): **http://127.0.0.1:8000/docs**
 
-If demo users / DEMO001 student are missing:
+Seed users + cameras (safe to re-run):
 
 ```powershell
 cd "D:\BS CS\Vigilant Eye\backend"
 .\venv\Scripts\Activate.ps1
-python seed_demo_users.py
+python seed_all_demo.py
 ```
 
 ---
@@ -38,46 +38,42 @@ python seed_demo_users.py
 
 | Role | Email | What to show |
 |------|--------|----------------|
-| Invigilator | `invigilator@demo.com` | Create case, evidence, detections, monitoring |
+| Invigilator | `invigilator@demo.com` | Live Monitoring, detections, create case, evidence |
 | HOD | `hod@demo.com` | Forward case, audit trail |
 | DEC | `dec@demo.com` | Investigate / forward |
 | Exam Department | `examdept@demo.com` | Forward to committee, result holds |
 | UFM Committee | `ufm@demo.com` | APPROVE / REJECT |
 | Student | `student@demo.com` | Own cases + clarification |
 
-Login page: click a role card to fill email (password stays `Demo@123`).
+Login page: click a role card to **sign in** (password `Demo@123`).
 
-**Student portal link:** cases for roll **`DEMO001`** (DB student id usually `2`). Create Case defaults to this roll when present.
+**Student portal link:** cases for roll **`DEMO001`**. Create Case defaults to this roll when present.
 
 ---
 
-## 2. Happy-path story (≈ 8–10 minutes)
+## 2. Happy-path story (≈ 10–12 minutes)
 
-### A. Invigilator — create a case
+### A. Invigilator — live detect → case
 
-1. Login as **invigilator@demo.com**
-2. Dashboard → KPIs / camera tiles (**PROTOTYPE** — not live RTSP)
-3. **Create Case**
-   - Student: **DEMO001**
-   - Exam: any listed exam (e.g. CS101)
-   - Violation + short description
-4. Submit → lands on **Case Detail**
-5. Optional: **Evidence Library** → upload a small image for that case
+1. Login as **invigilator@demo.com** (one-click on login page)
+2. Dashboard → **Live Monitoring** (or Quick Action)
+3. Click **Demo: sample clip + detect**  
+   - LIVE tile shows MJPEG + YOLO boxes  
+   - Persist writes confirmed UFM labels to DB  
+   - Alternate: **Demo: webcam** if a laptop camera is available
+4. Open **Detections & Alerts** → confirm rows → **Create Case** / **File case**
+5. Student: **DEMO001**, exam **CS101**, violation matching detection
+6. Optional: **Evidence Library** → upload a small image
 
-**Talking point:** Case starts as **PENDING**; HOD is notified in-portal.
+**Talking point:** Case starts as **PENDING**; HOD is notified in-portal. Live video is backend MJPEG (webcam / file / RTSP URL) — not browser-native WebRTC.
 
 ### B. Student — clarification
 
 1. Logout → login **student@demo.com**
-2. Dashboard / **UFM Cases** → only cases for DEMO001
-3. Open the case → **Submit Clarification** (10+ characters)
-4. Confirm it appears under **My Clarifications** and on case detail
-
-**Talking point:** Clarification notifies HOD + reporting invigilator (portal notifications; email = FUTURE).
+2. **UFM Cases** → only DEMO001 cases
+3. Open case → **Submit Clarification** (10+ characters)
 
 ### C. HOD → DEC → Exam Dept → UFM
-
-Use **Case Detail → Review Actions** (or open from each role’s queue).
 
 | Step | Login as | Action | New status |
 |------|----------|--------|------------|
@@ -86,30 +82,27 @@ Use **Case Detail → Review Actions** (or open from each role’s queue).
 | 3 | `examdept@demo.com` | **FORWARD** | `UFM_COMMITTEE_REVIEW` |
 | 4 | `ufm@demo.com` | **APPROVE** (or REJECT) | `APPROVED` / `REJECTED` |
 
-On **APPROVE**:
-
-- Result control auto-created: result **HELD**, transcript **BLOCKED**
-- Show **Result Control** page as Exam Dept or UFM
-- Optional: click **Release** to demonstrate unblocking
+On **APPROVE**: result hold (HELD / BLOCKED) → show **Result Control** → optional **Release**.
 
 ### D. Audit Trail
 
-Login as **hod@demo.com** (or DEC / Exam / UFM) → **Audit Trail**
-
-Filter/search for `CASE_CREATED`, `CLARIFICATION_SUBMITTED`, `CASE_REVIEW_*`, `RESULT_HOLD_CREATED`.
+As HOD / DEC / Exam / UFM → **Audit Trail** for `CASE_CREATED`, `CLARIFICATION_SUBMITTED`, `CASE_REVIEW_*`, `RESULT_HOLD_CREATED`.
 
 ---
 
-## 3. Optional AI PoC (if time)
+## 3. Optional offline AI CLI
 
-From `ai/` (venv with YOLO deps as already set up for Day 4):
+If live detect is slow on CPU:
 
-1. Run detector / validate on a sample image or clip
-2. Confirm detections → save with `save_confirmed_to_db.py`
-3. In portal as invigilator/HOD: **Detections & Alerts** shows rows
-4. Optional draft case from detection (API / bridge) if you use that path
+```powershell
+cd "D:\BS CS\Vigilant Eye"
+.\backend\venv\Scripts\Activate.ps1
+python ai/save_confirmed_to_db.py --source ai/samples/phone_under_desk.jpg --camera-id 1
+```
 
-**Honest line for evaluators:** pretrained YOLO is a PoC; phones/watches may be missed; custom training / MediaPipe / live RTSP = **FUTURE**.
+Then refresh **Detections & Alerts**.
+
+**Honest line:** custom UFM training may still be in progress on CPU; detector falls back to COCO / last `best.pt`. Phones/watches can be missed. Production RTSP fleet + WebRTC = future.
 
 ---
 
@@ -117,36 +110,34 @@ From `ai/` (venv with YOLO deps as already set up for Day 4):
 
 | Role | Highlight |
 |------|-----------|
-| Invigilator | Cameras + detections + my open cases |
-| HOD / DEC / Exam / UFM | Queue KPIs + status/violation charts |
-| Student | Cases + guidelines + clarification CTA |
-| Reports | PROTOTYPE summaries (no PDF export yet) |
-| Live Monitoring | PROTOTYPE tiles only |
+| Invigilator | Live Monitoring CTA + detections + my open cases |
+| HOD / DEC / Exam / UFM | Queue KPIs + charts |
+| Student | Cases + clarification CTA |
+| Reports | Summaries (PDF export not yet) |
+| Live Monitoring | MJPEG live tiles (webcam / clip / RTSP) |
 
 ---
 
-## 5. What to say is done vs future
+## 5. Done vs future
 
-### In this prototype
+### In this build
 
 - Auth + RBAC (JWT)
 - UFM case workflow with role actions
-- Evidence upload (files on disk + DB metadata)
-- Portal notifications
-- Student clarification
+- Evidence upload
+- Portal notifications + student clarification
 - Result hold on approve + release
 - Audit log
-- AI PoC → detections table
-- Role-based React portal (mockup-inspired)
+- Live Monitoring (MJPEG + optional YOLO + persist)
+- AI detections → portal
+- Role-based React portal
 
-### FUTURE / out of one-week prototype
+### Still future / limited
 
-- Live RTSP / WebRTC video
-- Email / SMS / WebSockets
-- Custom YOLO / MediaPipe
-- Digital signatures
-- Full student SIS integration (beyond DEMO001 link)
-- PDF reports / polished analytics
+- Production multi-camera WebRTC grid
+- Email / SMS push
+- Strong custom YOLO (needs finished GPU/CPU train)
+- Digital signatures / full SIS / PDF reports
 
 ---
 
@@ -154,15 +145,16 @@ From `ai/` (venv with YOLO deps as already set up for Day 4):
 
 | Symptom | Quick fix |
 |---------|-----------|
-| Login fails | Re-run `python seed_demo_users.py`; password `Demo@123` |
-| Student sees 0 cases | Case must use student **DEMO001** |
-| Empty Create Case dropdowns | Need ≥1 student and ≥1 exam in DB |
+| Login fails | `python seed_all_demo.py`; password `Demo@123` |
+| No cameras on Monitoring | `python seed_demo_cameras.py` or `seed_all_demo.py` |
+| Student sees 0 cases | Case must use roll **DEMO001** |
+| Empty Create Case dropdowns | Seed cameras (includes CS101) or create exam in Master Data |
+| Sample clip won’t open | Confirm `ai/samples/sample_exam_clip.mp4` exists |
 | Audit 403 | Use HOD/DEC/Exam/UFM — not invigilator/student |
-| Frontend blank / API errors | Confirm backend on `:8000`, `VITE_API_URL` in `frontend/.env` |
-| CORS errors | Use `127.0.0.1:5173` (allowed in backend CORS) |
+| Frontend / API errors | Backend `:8000`, frontend `127.0.0.1:5173` |
 
 ---
 
-## 7. Suggested closing sentence
+## 7. Closing sentence
 
-> VigilantEye demonstrates an end-to-end institutional UFM pipeline: AI-assisted detection PoC, invigilator case filing, student clarification, multi-role review, automatic result hold, and a full audit trail — with live video and production ML marked as future work.
+> VigilantEye shows an end-to-end institutional UFM pipeline: live AI-assisted monitoring into detections, invigilator case filing, student clarification, multi-role review, automatic result hold, and a full audit trail — with production video mesh and stronger custom ML called out as next steps.

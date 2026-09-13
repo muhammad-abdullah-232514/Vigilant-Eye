@@ -272,9 +272,10 @@ export function quickActionsForRole(role) {
 
   if (role === "INVIGILATOR") {
     return [
+      { to: "/app/monitoring", label: "Live Monitoring", tone: "emerald" },
       { to: "/app/cases/new", label: "Create New Case", tone: "sky" },
       { to: "/app/detections", label: "View Detections", tone: "orange" },
-      { to: "/app/evidence", label: "Evidence Library", tone: "emerald" },
+      { to: "/app/evidence", label: "Evidence Library", tone: "violet" },
       ...base,
     ];
   }
@@ -333,7 +334,7 @@ export function quickActionsForRole(role) {
   // STUDENT
   return [
     { to: "/app/cases", label: "My UFM Cases", tone: "violet" },
-    { to: "/app/clarification", label: "Clarification (soon)", tone: "orange" },
+    { to: "/app/clarification", label: "Submit Clarification", tone: "orange" },
     { to: "/app/help", label: "Help & Support", tone: "sky" },
     { to: "/app/notifications", label: "Notifications", tone: "emerald" },
   ];

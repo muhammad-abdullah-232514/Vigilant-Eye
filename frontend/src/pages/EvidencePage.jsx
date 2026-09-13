@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { fetchCases, fetchEvidence, uploadEvidence } from "../services/api";
+import { fetchCases, fetchEvidence, openEvidenceFile, uploadEvidence } from "../services/api";
 
 export default function EvidencePage() {
   const [searchParams] = useSearchParams();
@@ -197,8 +197,9 @@ export default function EvidencePage() {
                 <th className="px-4 py-3">ID</th>
                 <th className="px-4 py-3">Case</th>
                 <th className="px-4 py-3">Type</th>
-                <th className="px-4 py-3">Path</th>
+                <th className="px-4 py-3">File</th>
                 <th className="px-4 py-3">Created</th>
+                <th className="px-4 py-3">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -214,11 +215,28 @@ export default function EvidencePage() {
                     </Link>
                   </td>
                   <td className="px-4 py-3">{e.evidence_type}</td>
-                  <td className="px-4 py-3 text-slate-600">{e.file_path}</td>
+                  <td className="max-w-[12rem] truncate px-4 py-3 text-xs text-slate-600">
+                    {e.file_path}
+                  </td>
                   <td className="px-4 py-3 text-slate-500">
                     {e.created_at
                       ? new Date(e.created_at).toLocaleString()
                       : "—"}
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-au-blue hover:underline"
+                      onClick={async () => {
+                        try {
+                          await openEvidenceFile(e.id);
+                        } catch (err) {
+                          setError(err.message || "Could not open file");
+                        }
+                      }}
+                    >
+                      Open
+                    </button>
                   </td>
                 </tr>
               ))}

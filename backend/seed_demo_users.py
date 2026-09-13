@@ -6,7 +6,7 @@ Usage (from backend folder, venv active):
 
 Default password for all demo users: Demo@123
 
-Also ensures a linked student row (roll DEMO001) for student@demo.com portal demos.
+Ensures student roll DEMO001 exists and is linked to student@demo.com via user_id.
 """
 
 from sqlalchemy import select
@@ -15,9 +15,10 @@ from database import SessionLocal
 from models.student import Student
 from models.user import User
 from security import hash_password
-from student_portal import DEMO_STUDENT_ROLL
 
 DEMO_PASSWORD = "Demo@123"
+DEMO_STUDENT_ROLL = "DEMO001"
+DEMO_STUDENT_EMAIL = "student@demo.com"
 
 DEMO_USERS = [
     ("Demo Student", "student@demo.com", "STUDENT"),
@@ -53,25 +54,49 @@ def seed() -> None:
             print(f"CREATE {email}  role={role}")
             created += 1
 
+        db.flush()
+
+        student_user = db.scalar(
+            select(User).where(User.email == DEMO_STUDENT_EMAIL)
+        )
         linked = db.scalar(
             select(Student).where(Student.student_id == DEMO_STUDENT_ROLL)
         )
-        if linked:
-            print(
-                f"SKIP  student roll {DEMO_STUDENT_ROLL} "
-                f"(already exists, id={linked.id})"
-            )
-        else:
+        if linked is None:
             linked = Student(
                 student_id=DEMO_STUDENT_ROLL,
                 name="Demo Student",
                 department="Computer Science",
                 program="BSCS",
+                user_id=student_user.id if student_user else None,
             )
             db.add(linked)
             print(
                 f"CREATE student roll {DEMO_STUDENT_ROLL} "
-                "(linked to student@demo.com portal)"
+                f"(user_id={student_user.id if student_user else None})"
+            )
+        elif student_user and linked.user_id != student_user.id:
+            # Clear any other student that already owns this portal user
+            other = db.scalar(
+                select(Student).where(
+                    Student.user_id == student_user.id,
+                    Student.id != linked.id,
+                )
+            )
+            if other:
+                other.user_id = None
+                print(
+                    f"UNLINK student id={other.id} from user_id={student_user.id}"
+                )
+            linked.user_id = student_user.id
+            print(
+                f"LINK  roll {DEMO_STUDENT_ROLL} -> {DEMO_STUDENT_EMAIL} "
+                f"(user_id={student_user.id})"
+            )
+        else:
+            print(
+                f"SKIP  student roll {DEMO_STUDENT_ROLL} "
+                f"(id={linked.id}, user_id={linked.user_id})"
             )
 
         db.commit()
@@ -79,7 +104,7 @@ def seed() -> None:
         print(f"Done. created={created}, skipped={skipped}")
         print(f"Password for all demo accounts: {DEMO_PASSWORD}")
         print(
-            f"Student portal cases must use student_id FK for roll {DEMO_STUDENT_ROLL}."
+            f"Portal link: {DEMO_STUDENT_EMAIL} <-> roll {DEMO_STUDENT_ROLL} via user_id"
         )
     finally:
         db.close()

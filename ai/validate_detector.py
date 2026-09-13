@@ -1,10 +1,7 @@
 """
-VigilantEye — repeated-frame validation (PROTOTYPE).
+VigilantEye — repeated-frame validation.
 
-Idea:
-  A single-frame detection can be a false positive.
-  Confirm a class only if it appears in N consecutive frames
-  above a confidence threshold.
+Confirms a class only if it appears in N consecutive frames above confidence.
 
 Usage:
   python ai/validate_detector.py --source ai/samples/sample_exam_clip.mp4
@@ -21,10 +18,14 @@ from pathlib import Path
 import cv2
 from ultralytics import YOLO
 
+from ufm_classes import normalize_label, resolve_weights, to_violation_type
+
 
 @dataclass
 class ConfirmedEvent:
     label: str
+    normalized: str
+    violation_type: str | None
     confidence: float
     frame_index: int
     timestamp_sec: float
@@ -42,7 +43,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--weights",
         type=str,
-        default=str(root / "weights" / "yolov8n.pt"),
+        default=None,
+        help="Force weights (default: custom best.pt if present, else COCO)",
     )
     parser.add_argument("--conf", type=float, default=0.35)
     parser.add_argument(
@@ -71,15 +73,19 @@ def main() -> None:
             "Run: python ai/make_sample_video.py"
         )
 
+    weights, mode = resolve_weights(args.weights)
+
     print("=" * 60)
     print("VigilantEye repeated-frame validation")
     print(f"time       : {datetime.now(timezone.utc).isoformat()}")
     print(f"source     : {source}")
+    print(f"weights    : {weights}")
+    print(f"mode       : {mode}")
     print(f"conf       : {args.conf}")
     print(f"min_frames : {args.min_frames}")
     print("=" * 60)
 
-    model = YOLO(args.weights)
+    model = YOLO(str(weights))
     cap = cv2.VideoCapture(str(source))
     if not cap.isOpened():
         raise RuntimeError(f"Could not open video: {source}")
@@ -95,9 +101,7 @@ def main() -> None:
         (width, height),
     )
 
-    # label -> consecutive hit count
     streaks: dict[str, int] = defaultdict(int)
-    # labels already confirmed (avoid spamming every frame after confirm)
     confirmed_labels: set[str] = set()
     events: list[ConfirmedEvent] = []
 
@@ -116,46 +120,49 @@ def main() -> None:
             for box in result.boxes:
                 cls_id = int(box.cls[0].item())
                 conf = float(box.conf[0].item())
-                label = names.get(cls_id, str(cls_id))
-                # keep highest conf per label in this frame
-                labels_this_frame[label] = max(labels_this_frame.get(label, 0.0), conf)
+                raw = names.get(cls_id, str(cls_id))
+                normalized = normalize_label(raw)
+                labels_this_frame[normalized] = max(
+                    labels_this_frame.get(normalized, 0.0), conf
+                )
 
-        # update streaks
         active = set(labels_this_frame.keys())
         for label in list(streaks.keys()):
             if label not in active:
                 streaks[label] = 0
         for label, conf in labels_this_frame.items():
             streaks[label] += 1
-            if (
-                streaks[label] >= args.min_frames
-                and label not in confirmed_labels
-            ):
+            if streaks[label] >= args.min_frames and label not in confirmed_labels:
                 confirmed_labels.add(label)
                 event = ConfirmedEvent(
                     label=label,
+                    normalized=label,
+                    violation_type=to_violation_type(label),
                     confidence=conf,
                     frame_index=frame_index,
                     timestamp_sec=frame_index / fps,
                 )
                 events.append(event)
                 print(
-                    f"CONFIRMED  class={label:12} "
+                    f"CONFIRMED  class={label:16} "
+                    f"violation={event.violation_type or '—':16} "
                     f"conf={conf:.3f}  frame={frame_index}  "
                     f"t={event.timestamp_sec:.2f}s  "
                     f"(seen {streaks[label]} consecutive frames)"
                 )
 
-        # draw YOLO boxes + confirmation banner
         annotated = result.plot()
         if events:
             latest = events[-1]
+            banner = latest.label
+            if latest.violation_type:
+                banner = f"{latest.label} / {latest.violation_type}"
             cv2.putText(
                 annotated,
-                f"CONFIRMED: {latest.label} ({latest.confidence:.2f})",
+                f"CONFIRMED: {banner} ({latest.confidence:.2f})",
                 (20, 40),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                1.0,
+                0.8,
                 (0, 255, 0),
                 2,
                 cv2.LINE_AA,
@@ -171,8 +178,8 @@ def main() -> None:
     print(f"Confirmed events : {len(events)}")
     for e in events:
         print(
-            f"  - {e.label} conf={e.confidence:.3f} "
-            f"@ frame {e.frame_index} ({e.timestamp_sec:.2f}s)"
+            f"  - {e.label} -> {e.violation_type or 'unmapped'} "
+            f"conf={e.confidence:.3f} @ frame {e.frame_index} ({e.timestamp_sec:.2f}s)"
         )
     print(f"Annotated video  : {out_path}")
     print("Done.")
