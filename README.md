@@ -141,6 +141,61 @@ The app user is **`vigilant`** (not the `postgres` superuser). Database name: **
 
 ---
 
+## macOS — live webcam monitoring (recommended on a Mac)
+
+Docker Desktop on macOS **cannot access the Mac camera**, so on a Mac the API (which owns camera
+capture, YOLO and MediaPipe) runs **natively** in a Python 3.12 venv, while PostgreSQL and the
+frontend stay in Docker.
+
+```bash
+cd "/path/to/Vigilant Eye"
+./scripts/start-mac.sh setup     # one-time: installs uv, Python 3.12, .venv, requirements-mac.txt
+./scripts/start-mac.sh           # Postgres + frontend in Docker, API natively (Ctrl+C stops the API)
+./scripts/start-mac.sh -d        # same, API in background (logs/api-mac.log)
+./scripts/start-mac.sh status
+./scripts/start-mac.sh stop
+```
+
+Open http://localhost:5173 → Live Monitoring → **Start Monitoring** on a camera whose Stream URL is
+`webcam:0`. The first time, macOS asks to allow camera access for the app that launched the script
+(Terminal / iTerm / VS Code) — allow it, then restart the API. If index 0 fails the API tries index 1.
+
+### AI model selection (`.env`)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `YOLO_MODEL` | `auto` | `auto` = trained UFM detector if `ai/weights/ufm_od_v1.pt` exists, else COCO; `custom`; `coco` |
+| `YOLO_CUSTOM_WEIGHTS` | `ai/weights/ufm_od_v1.pt` | path to the trained detector |
+| `LIVE_IMGSZ` | `480` (Mac script) | inference size — lower = faster |
+| `UFM_CONFIRM_FRAMES` | `3` | consecutive detections before an alert (persistence) |
+| `UFM_PERSIST_COOLDOWN_SEC` | `45` | mute repeat alerts for the same object/place |
+| `UFM_CONF_<CLASS>_CONFIRM` | per class | confidence gate, e.g. `UFM_CONF_MOBILE_PHONE_CONFIRM=0.6` |
+| `UFM_YAW_ALERT_DEG` | `28` | head-turn angle counted as looking away |
+
+Detector classes: `mobile_phone`, `laptop` (laptop/tablet), `smart_watch`, `normal_watch` (allowed,
+never alerts), `notes_paper`, `electronic_gadget` (earbuds/headsets). Head turns toward a neighbour
+(MediaPipe Face Mesh yaw) raise `looking_away` **review** alerts. Every alert is a flag for the
+Invigilator — UFM case action still requires human review and sign-off.
+Training data and licenses: [DATASETS.md](DATASETS.md) · results: [docs/AI_MODEL_RESULTS.md](docs/AI_MODEL_RESULTS.md).
+
+### Connecting CCTV / IP cameras (RTSP)
+
+In **Master Data → Cameras** set the Stream URL to the camera's RTSP URL, e.g.
+`rtsp://user:password@192.168.1.64:554/Streaming/Channels/101` (Hikvision) or
+`rtsp://user:password@192.168.1.108:554/cam/realmonitor?channel=1&subtype=0` (Dahua).
+The API connects over TCP, verifies frames arrive, and reconnects automatically if the stream drops.
+Credentials are redacted in the UI/logs. Use the camera's sub-stream (lower resolution) for many
+cameras per server.
+
+Test without a real camera (simulated CCTV stream looping the sample clip):
+
+```bash
+docker compose -f docker-compose.rtsp-test.yml up -d     # rtsp://127.0.0.1:8554/cam1
+docker compose -f docker-compose.rtsp-test.yml down
+```
+
+---
+
 ## Demo accounts
 
 Password for all: **`Demo@123`**
@@ -256,6 +311,9 @@ AI scripts live under `ai/` (`train_yolo.py`, `save_confirmed_to_db.py`; Live Mo
 | Symptom | Fix |
 |---------|-----|
 | `docker` not found | Install/start Docker Desktop |
+| Mac: "Could not read frames from the Mac camera" | System Settings → Privacy & Security → Camera → allow Terminal/iTerm/VS Code; close FaceTime/Zoom; restart `./scripts/start-mac.sh` |
+| Mac: "No webcam available inside Docker" | The API is running in Docker — use `./scripts/start-mac.sh` (native API) instead of `docker compose up` |
+| RTSP camera "Could not connect" | Check IP/port/path/credentials from the API machine (`ffplay rtsp://…` or VLC); camera must be reachable on the network |
 | Backend NOT READY | `docker compose logs api` — wait for bootstrap; check `.env` has `POSTGRES_PASSWORD` + `JWT_SECRET` |
 | Port 5173/8000 busy | Stop old `npm run dev` / uvicorn; `.\start-dev.ps1 -Stop` then start again |
 | Login fails | Seed runs on API start; use emails above + `Demo@123` |

@@ -38,6 +38,9 @@ PENDING_DIR = Path(__file__).resolve().parent / "uploads" / "pending_persist"
 PENDING_DIR.mkdir(parents=True, exist_ok=True)
 
 from detection_policy import (  # noqa: E402
+    DEFAULT_CONFIRM_FRAMES,
+    DEFAULT_COOLDOWN_SEC,
+    DEFAULT_REVIEW_FRAMES,
     Decision,
     SessionTracker,
     annotate_detection_dict,
@@ -378,9 +381,9 @@ class LiveStreamManager:
             min_frames=min_frames,
             persist_cooldown_sec=45.0,
             tracker=SessionTracker(
-                confirm_frames=max(3, min_frames),
-                review_frames=max(2, min_frames - 1),
-                cooldown_sec=45.0,
+                confirm_frames=max(DEFAULT_CONFIRM_FRAMES, min_frames),
+                review_frames=max(DEFAULT_REVIEW_FRAMES, min_frames - 1),
+                cooldown_sec=DEFAULT_COOLDOWN_SEC,
             ),
             suspicion=SuspicionEngine(),
             is_demo=is_demo,
