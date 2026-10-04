@@ -497,7 +497,7 @@ class LiveStreamManager:
                         imgsz=LIVE_IMGSZ,
                         conf=0.5,
                         verbose=False,
-                        half=self._use_half(),
+                        **self._half_kwargs(),
                     )
                 except Exception:  # noqa: BLE001
                     pass
@@ -533,6 +533,10 @@ class LiveStreamManager:
                 self._custom_model_path = None
 
             return self._model_mode
+
+    def _half_kwargs(self) -> dict[str, Any]:
+        """FP16 only on CUDA; passing half=False on CPU triggers a per-frame deprecation warning."""
+        return {"half": True} if self._use_half() else {}
 
     def _use_half(self) -> bool:
         try:
@@ -843,7 +847,7 @@ class LiveStreamManager:
             "imgsz": LIVE_IMGSZ,
             "conf": conf_gate,
             "verbose": False,
-            "half": self._use_half(),
+            **self._half_kwargs(),
         }
         # Class filter only for pretrained COCO (custom models have different ids)
         if model_mode == "coco":
@@ -873,7 +877,7 @@ class LiveStreamManager:
                     imgsz=LIVE_IMGSZ,
                     conf=conf_gate,
                     verbose=False,
-                    half=self._use_half(),
+                    **self._half_kwargs(),
                 )[0]
                 custom_labels = self._boxes_to_labels(
                     custom_result, model_mode="custom", frame_wh=frame_wh
