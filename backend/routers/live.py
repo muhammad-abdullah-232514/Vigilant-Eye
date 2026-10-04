@@ -139,7 +139,7 @@ def _validate_source_url(stream_url: str, *, allow_sample_file: bool = True) -> 
         return raw
     if raw.isdigit():
         return raw
-    if lower.startswith("rtsp://") or lower.startswith("http://") or lower.startswith(
+    if lower.startswith(("rtsp://", "rtsps://")) or lower.startswith("http://") or lower.startswith(
         "https://"
     ):
         return raw

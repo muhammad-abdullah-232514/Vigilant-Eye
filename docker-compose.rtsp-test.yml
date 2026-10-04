@@ -1,0 +1,37 @@
+# Local RTSP "CCTV camera" simulator for testing the RTSP source path.
+#
+#   docker compose -f docker-compose.rtsp-test.yml up -d
+#   -> rtsp://127.0.0.1:8554/cam1   (loops ai/samples/sample_exam_clip.mp4)
+#
+# In Master Data set a camera's Stream URL to rtsp://127.0.0.1:8554/cam1
+# (or rtsp://host.docker.internal:8554/cam1 if the API runs inside Docker),
+# then Start Monitoring. Stop with:  docker compose -f docker-compose.rtsp-test.yml down
+#
+# Override the looped clip (must be in ai/samples/):  RTSP_TEST_FILE_NAME=other.mp4 docker compose -f ... up -d
+
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:1.9.3
+    ports:
+      - "8554:8554"
+    restart: unless-stopped
+
+  publisher:
+    image: linuxserver/ffmpeg:7.1.1
+    depends_on:
+      - mediamtx
+    volumes:
+      - ./ai/samples:/media:ro
+    entrypoint: ["/bin/sh", "-c"]
+    # -re = real-time pacing, loop forever, H.264 like a typical IP camera
+    command:
+      - >-
+        sleep 2; while true; do
+        ffmpeg -hide_banner -loglevel warning -re -stream_loop -1
+        -i /media/$${RTSP_FILE:-sample_exam_clip.mp4}
+        -c:v libx264 -preset veryfast -tune zerolatency -g 30 -an
+        -f rtsp -rtsp_transport tcp rtsp://mediamtx:8554/cam1;
+        sleep 2; done
+    environment:
+      RTSP_FILE: ${RTSP_TEST_FILE_NAME:-sample_exam_clip.mp4}
+    restart: unless-stopped

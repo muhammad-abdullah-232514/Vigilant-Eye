@@ -1,0 +1,12 @@
+# Native macOS (Intel x86_64 or Apple Silicon) runtime for the API + live camera AI.
+# Docker Desktop cannot reach the Mac camera, so on a Mac the API runs natively.
+# Pins differ from requirements.txt only where macOS wheels force it:
+#   - torch 2.2.2 is the last release with Intel-Mac wheels (needs numpy < 2)
+#   - mediapipe 0.10.21 is the last release with the legacy FaceMesh "solutions" API
+-r requirements-common.txt
+numpy==1.26.4
+opencv-python==4.10.0.84
+torch==2.2.2
+torchvision==0.17.2
+mediapipe==0.10.21
+lap==0.5.12

@@ -45,3 +45,4 @@ ai/dataset/rtsp_test/
 ai/runs/
 ai/eval_videos/
 *.zip
+logs/

@@ -50,7 +50,8 @@ from posture_analysis import (  # noqa: E402
     observation_to_dict,
 )
 from suspicion_score import SuspicionEngine  # noqa: E402
-from ufm_classes import resolve_weights  # noqa: E402
+from ufm_classes import display_name, resolve_weights  # noqa: E402
+from capture_source import CaptureError, classify_source, open_capture  # noqa: E402
 
 LIVE_POSTURE = os.getenv("LIVE_POSTURE", "1").strip().lower() not in {
     "0",
@@ -104,33 +105,11 @@ def _compute_ai_status(session: CameraSession) -> str:
 
 
 def resolve_capture_source(stream_url: str) -> int | str:
-    """Map DB stream_url to OpenCV VideoCapture argument."""
-    raw = (stream_url or "").strip()
-    if not raw:
-        raise ValueError("Empty stream_url")
-
-    lower = raw.lower()
-    if lower in ("webcam", "cam", "local"):
-        return 0
-    if lower.startswith("webcam:"):
-        return int(lower.split(":", 1)[1])
-    if raw.isdigit():
-        return int(raw)
-
-    path = Path(raw)
-    if path.is_file():
-        return str(path.resolve())
-
-    # Relative to project root (common when API runs from backend/)
-    rooted = ROOT / raw
-    if rooted.is_file():
-        return str(rooted.resolve())
-
-    alt = ROOT / "ai" / "samples" / Path(raw).name
-    if alt.is_file():
-        return str(alt.resolve())
-
-    return raw
+    """Map DB stream_url to OpenCV VideoCapture argument (see capture_source)."""
+    try:
+        return classify_source(stream_url)[1]
+    except CaptureError:
+        return (stream_url or "").strip()
 
 
 @dataclass
@@ -450,7 +429,7 @@ class LiveStreamManager:
 
         thread.start()
         # Wait until camera opens or fails (webcam can take >0.4s)
-        deadline = time.monotonic() + 2.5
+        deadline = time.monotonic() + 8.0
         while time.monotonic() < deadline:
             if session.running or session.error:
                 break
@@ -562,28 +541,17 @@ class LiveStreamManager:
 
     def _run_loop(self, session: CameraSession) -> None:
         try:
-            source = resolve_capture_source(session.stream_url)
-            session.opened_source = str(source)
-            cap = cv2.VideoCapture(source)
-            if not cap.isOpened():
-                kind = (session.stream_url or "").strip().lower()
-                hint = ""
-                if kind.startswith("webcam") or kind.isdigit():
-                    hint = (
-                        " No webcam detected — configure an approved sample clip "
-                        "or RTSP URL in Master Data."
-                    )
-                session.error = f"Could not open source: {session.stream_url}.{hint}"
-                session.running = False
-                return
-
-            # Prefer lower capture resolution when the device supports it
             try:
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            except Exception:  # noqa: BLE001
-                pass
+                opened = open_capture(session.stream_url)
+            except CaptureError as exc:
+                session.error = str(exc)
+                session.running = False
+                print(f"[live] camera {session.camera_code}: {exc}")
+                return
+            cap = opened.cap
+            session.opened_source = opened.description
+            pending_frame: np.ndarray | None = opened.first_frame
+            print(f"[live] camera {session.camera_code} opened {opened.description}")
 
             session.running = True
             # Keep model_error; only clear camera open errors
@@ -593,20 +561,41 @@ class LiveStreamManager:
                 self._retry_pending_persists(session)
             tracker: SessionTracker = session.tracker or SessionTracker()
             session.tracker = tracker
-            is_file = isinstance(source, str) and Path(source).is_file()
+            is_file = opened.kind == "file"
+            is_live_net = opened.kind in ("rtsp", "stream")
+            read_failures = 0
             last_labels: list[dict[str, Any]] = []
             loop_i = 0
             model_mode = self._model_mode or session.weights_mode or "coco"
             last_retry_at = 0.0
 
             while not session.stop_event.is_set():
-                ok, frame = cap.read()
+                if pending_frame is not None:
+                    ok, frame, pending_frame = True, pending_frame, None
+                else:
+                    ok, frame = cap.read()
                 if not ok:
                     if is_file:
                         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                         continue
+                    read_failures += 1
+                    # Network cameras drop: reconnect after ~2 s of failed reads
+                    if is_live_net and read_failures >= 100:
+                        session.error = "Stream interrupted — reconnecting…"
+                        cap.release()
+                        while not session.stop_event.is_set():
+                            try:
+                                opened = open_capture(session.stream_url)
+                                cap, pending_frame = opened.cap, opened.first_frame
+                                session.error = None
+                                break
+                            except CaptureError as exc:
+                                session.error = f"{exc} Retrying…"
+                                session.stop_event.wait(5.0)
+                        read_failures = 0
                     time.sleep(0.02)
                     continue
+                read_failures = 0
 
                 now_mono = time.monotonic()
                 if session.persist and now_mono - last_retry_at >= 2.0:
@@ -651,6 +640,7 @@ class LiveStreamManager:
                                 confidence=float(item["confidence"]),
                                 bin_id=bin_id,
                                 now=now,
+                                xyxy=tuple(float(v) for v in xyxy[:4]),
                             )
                             if emit is None:
                                 continue
@@ -724,17 +714,30 @@ class LiveStreamManager:
                                 score_payload.append(snap)
                                 if snap.get("should_alert"):
                                     event = LiveDetectionEvent(
-                                        label="head_orientation",
+                                        label="looking_away",
                                         confidence=min(0.99, snap["score"] / 100.0),
                                         frame_index=session.frame_index,
                                         timestamp=datetime.now(timezone.utc)
                                         .replace(tzinfo=None)
                                         .isoformat(timespec="seconds"),
                                         decision="REVIEW",
-                                        raw_label=f"score={snap['score']}",
+                                        raw_label=(
+                                            f"yaw={obs.yaw_deg:.0f} pitch={obs.pitch_deg:.0f} "
+                                            f"score={snap['score']}"
+                                        ),
+                                        save_status="pending" if session.persist else "none",
                                     )
                                     with session.lock:
                                         session.recent_events.append(event)
+                                    # Head turn toward a neighbour: REVIEW-only alert with
+                                    # snapshot evidence (never auto-confirmed).
+                                    if session.persist:
+                                        self._enqueue_persist(
+                                            session,
+                                            event=event,
+                                            annotated_frame=draw_head_overlays(draw, heads),
+                                            confirmed=False,
+                                        )
                                     try:
                                         from ws_hub import broadcast_alert
 
@@ -803,11 +806,9 @@ class LiveStreamManager:
                 color = (160, 160, 160)
             cv2.rectangle(draw, (x1, y1), (x2, y2), color, 2)
             score = float(item.get("confidence") or 0)
-            caption = f"{item.get('raw_label', item.get('label'))} {score:.2f}"
+            caption = f"{display_name(item.get('raw_label', item.get('label')))} {score:.2f}"
             if item.get("category"):
-                caption = f"{item['category']} {score:.2f}"
-                if item.get("raw_label") and item["raw_label"] != item["category"]:
-                    caption = f"{item['category']} ({item['raw_label']}) {score:.2f}"
+                caption = f"{display_name(item['category'])} {score:.2f}"
             if decision == Decision.REVIEW.value:
                 caption = f"REVIEW {caption}"
             elif decision == Decision.CONFIRM.value:
