@@ -1157,8 +1157,9 @@ class LiveStreamManager:
                 )
                 db.add(row)
                 db.flush()
-                # Invigilator-only alerts for confirmed AI events (not guilt decisions)
-                if confirmed:
+                # Invigilator-only alerts for confirmed AI events (not guilt decisions).
+                # Head turns are review-only by design but still notify the invigilator.
+                if confirmed or det_type == "looking_away":
                     notify_detection_alert(db, row, is_demo=bool(session.is_demo))
                 if annotated_frame is not None:
                     created = create_detection_evidence(

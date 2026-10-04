@@ -70,10 +70,12 @@ def notify_detection_alert(
     if mv:
         model_bit = f" model={mv}"
 
+    # AI-confirmed = passed confidence + multi-frame checks; still needs human review.
+    level = "Confirmed AI event" if detection.is_confirmed else "AI review candidate"
     if is_demo or getattr(detection, "is_demo", False):
         title = "[DEMO] AI detection alert"
         message = (
-            f"[TEST DATA] Confirmed '{detection.detection_type}' "
+            f"[TEST DATA] {level} '{detection.detection_type}' "
             f"(detection confidence={detection.confidence:.2f})"
             f"{model_bit} "
             f"detection_id={detection.id} — not a production exam incident."
@@ -82,7 +84,7 @@ def notify_detection_alert(
     else:
         title = "AI detection alert"
         message = (
-            f"Confirmed AI event '{detection.detection_type}' "
+            f"{level} '{detection.detection_type}' "
             f"(detection confidence={detection.confidence:.2f})"
             f"{model_bit} "
             f"detection_id={detection.id}"

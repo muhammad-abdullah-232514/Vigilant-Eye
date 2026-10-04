@@ -38,7 +38,11 @@ export function mapDetectionToRecovered(detectionType) {
   }
   if (t.includes("calc")) return ["CALCULATOR"];
   if (t.includes("body") || t.includes("written")) return ["MATERIAL_ON_BODY"];
-  if (t.includes("remote") || t.includes("laptop") || t.includes("tablet")) {
+  if (
+    ["remote", "laptop", "tablet", "earbud", "earphone", "headphone", "gadget"].some((k) =>
+      t.includes(k),
+    )
+  ) {
     return ["SMART_DEVICES"];
   }
   return [];
