@@ -1,0 +1,158 @@
+﻿........................................................................ [ 20%]
+.....................................................F.................. [ 41%]
+............F........................................................... [ 62%]
+........................................................................ [ 83%]
+.........................F......................F.........               [100%]
+================================== FAILURES ===================================
+C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\tests\test_case_camera_c5.py:444: AssertionError: assert '20261004_000...model_version' == '20260930_0005_case_camera'
+C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\tests\test_db_reliability_phase22.py:97: AssertionError: assert '20261004_000...model_version' == '20260930_0005_case_camera'
+C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\tests\test_ufm_official_form.py:275: AssertionError: assert '20261004_000...model_version' == '20260930_0005_case_camera'
+C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\tests\test_university_ops_phase23.py:300: AssertionError: assert '20261004_000...model_version' == '20260930_0005_case_camera'
+============================== warnings summary ===============================
+backend\venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+backend\main.py:162
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\main.py:162: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("startup")
+
+backend\venv\Lib\site-packages\fastapi\applications.py:4681
+backend\venv\Lib\site-packages\fastapi\applications.py:4681
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\venv\Lib\site-packages\fastapi\applications.py:4681: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)  # ty: ignore[deprecated]
+
+backend\main.py:183
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\main.py:183: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("shutdown")
+
+backend/tests/test_admin_ops_phase21.py: 36 warnings
+backend/tests/test_admin_usability_phase20.py: 132 warnings
+backend/tests/test_admin_users_phase18.py: 108 warnings
+backend/tests/test_admin_workspace_phase19.py: 69 warnings
+backend/tests/test_audit_export_c9.py: 20 warnings
+backend/tests/test_audit_user_role_c23.py: 14 warnings
+backend/tests/test_auth_phase16.py: 135 warnings
+backend/tests/test_auth_phase17.py: 5 warnings
+backend/tests/test_authz_phase10.py: 117 warnings
+backend/tests/test_authz_phase11.py: 42 warnings
+backend/tests/test_case_camera_c5.py: 60 warnings
+backend/tests/test_case_created_at_c20.py: 6 warnings
+backend/tests/test_case_sort_c21.py: 24 warnings
+backend/tests/test_case_visibility_c22.py: 122 warnings
+backend/tests/test_csv_export_c6.py: 38 warnings
+backend/tests/test_db_reliability_phase22.py: 8 warnings
+backend/tests/test_detection_alert_recipients.py: 3 warnings
+backend/tests/test_email_phase24.py: 105 warnings
+backend/tests/test_evidence_upload_c28.py: 47 warnings
+backend/tests/test_hod_scope_c26fix.py: 1 warning
+backend/tests/test_report_stats_c7.py: 34 warnings
+backend/tests/test_reports_access_c27.py: 27 warnings
+backend/tests/test_result_control_c16.py: 154 warnings
+backend/tests/test_role_access_c11b.py: 169 warnings
+backend/tests/test_security_phase13.py: 15 warnings
+backend/tests/test_smoke.py: 5 warnings
+backend/tests/test_ufm_form_c15.py: 150 warnings
+backend/tests/test_ufm_lifecycle_phase26.py: 151 warnings
+backend/tests/test_ufm_official_form.py: 27 warnings
+backend/tests/test_university_ops_phase23.py: 106 warnings
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\venv\Lib\site-packages\sqlalchemy\sql\schema.py:3627: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+backend/tests/test_case_camera_c5.py: 4 warnings
+backend/tests/test_case_created_at_c20.py: 2 warnings
+backend/tests/test_case_visibility_c22.py: 7 warnings
+backend/tests/test_result_control_c16.py: 5 warnings
+backend/tests/test_role_access_c11b.py: 1 warning
+backend/tests/test_smoke.py: 1 warning
+backend/tests/test_ufm_form_c15.py: 4 warnings
+backend/tests/test_ufm_lifecycle_phase26.py: 7 warnings
+backend/tests/test_ufm_official_form.py: 3 warnings
+backend/tests/test_university_ops_phase23.py: 1 warning
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\main.py:1057: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    today = datetime.utcnow().strftime("%Y%m%d")
+
+backend/tests/test_case_camera_c5.py::test_detection_originated_case_gets_authoritative_camera
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\tests\test_case_camera_c5.py:255: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+backend/tests/test_case_camera_c5.py::test_detection_originated_case_gets_authoritative_camera
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\detection_bridge.py:48: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    today = datetime.utcnow().strftime("%Y%m%d")
+
+backend/tests/test_case_camera_c5.py::test_historical_case_null_camera_remains_readable
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\tests\test_case_camera_c5.py:336: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    signed_at=datetime.utcnow(),
+
+backend/tests/test_case_camera_c5.py::test_detection_camera_wrong_exam_room_rejected
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\tests\test_case_camera_c5.py:418: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+backend/tests/test_case_visibility_c22.py: 6 warnings
+backend/tests/test_result_control_c16.py: 18 warnings
+backend/tests/test_role_access_c11b.py: 10 warnings
+backend/tests/test_ufm_lifecycle_phase26.py: 10 warnings
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\main.py:1566: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    signed_at = datetime.utcnow()
+
+backend/tests/test_case_visibility_c22.py: 6 warnings
+backend/tests/test_result_control_c16.py: 18 warnings
+backend/tests/test_role_access_c11b.py: 10 warnings
+backend/tests/test_ufm_lifecycle_phase26.py: 10 warnings
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\main.py:1580: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    case.updated_at = datetime.utcnow()
+
+backend/tests/test_case_visibility_c22.py::test_downstream_roles_cannot_open_pending_to_under_review
+backend/tests/test_ufm_lifecycle_phase26.py::test_full_lifecycle_approve_hold_release
+backend/tests/test_ufm_lifecycle_phase26.py::test_return_path_and_finalized_locked
+backend/tests/test_ufm_lifecycle_phase26.py::test_return_path_and_finalized_locked
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\main.py:1510: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    case.updated_at = datetime.utcnow()
+
+backend/tests/test_detection_alert_recipients.py::test_confirmed_alert_goes_to_invigilator_not_hod
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\tests\test_detection_alert_recipients.py:69: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+backend/tests/test_result_control_c16.py::test_release_authorized_and_denied
+backend/tests/test_ufm_lifecycle_phase26.py::test_full_lifecycle_approve_hold_release
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\main.py:2432: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    control.released_at = datetime.utcnow()
+
+backend/tests/test_ufm_form_c15.py: 11 warnings
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\tests\test_ufm_form_c15.py:109: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+backend/tests/test_ufm_form_c15.py: 11 warnings
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\tests\test_ufm_form_c15.py:117: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+backend/tests/test_ufm_form_c15.py: 11 warnings
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\tests\test_ufm_form_c15.py:136: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    signed_at=datetime.utcnow(),
+
+backend/tests/test_ufm_form_c15.py: 11 warnings
+  C:\Users\KING\Desktop\NEW PROJ\Vigilant Eye\backend\tests\test_ufm_form_c15.py:146: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp=datetime.utcnow(),
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED backend/tests/test_case_camera_c5.py::test_alembic_head_includes_case_camera
+FAILED backend/tests/test_db_reliability_phase22.py::test_alembic_config_and_revisions_exist
+FAILED backend/tests/test_ufm_official_form.py::test_alembic_head_includes_ufm_form
+FAILED backend/tests/test_university_ops_phase23.py::test_alembic_head_includes_exam_ops
+4 failed, 342 passed, 2113 warnings in 598.87s (0:09:58)

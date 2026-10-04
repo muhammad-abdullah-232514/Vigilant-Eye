@@ -13,5 +13,7 @@ class AuditLogOut(BaseModel):
     entity_id: int | None
     description: str
     timestamp: datetime
+    # Display enrichment from users.role — not stored on audit_logs.
+    user_role: str | None = None
 
     model_config = {"from_attributes": True}

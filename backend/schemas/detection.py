@@ -11,8 +11,11 @@ class DetectionOut(BaseModel):
     confidence: float
     timestamp: datetime
     is_confirmed: bool
+    is_seen: bool = False
+    is_demo: bool = False
     source_path: str | None
     frame_index: int | None
+    model_version: str | None = None
 
     model_config = {"from_attributes": True}
 
