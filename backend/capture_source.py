@@ -117,41 +117,54 @@ class _SharedWebcam:
     One physical camera, many readers.
 
     A camera device can only be opened once reliably (macOS AVFoundation in
-    particular), but several Master Data cameras may point at the same webcam
-    (e.g. two monitoring sessions on one laptop). A single reader thread owns
-    the device and every session gets the latest frame.
+    particular), but several Master Data cameras may point at the same webcam.
+    A single owner thread opens the device, reads frames and closes it again —
+    AVFoundation must open and release a device on the same thread, otherwise the
+    camera can stay locked after Stop Monitoring.
     """
 
-    def __init__(self, index: int, cap: cv2.VideoCapture, first: np.ndarray) -> None:
+    def __init__(self, index: int) -> None:
         self.index = index
-        self._cap = cap
-        self._frame = first
-        self._seq = 1
+        self._frame: np.ndarray | None = None
+        self._seq = 0
         self._refs = 0
         self._cond = threading.Condition()
         self._stop = threading.Event()
+        self._ready = threading.Event()
+        self.ok = False
         self._thread = threading.Thread(target=self._loop, name=f"webcam-{index}", daemon=True)
         self._thread.start()
+        self._ready.wait(FIRST_FRAME_TIMEOUT["webcam"] + 4.0)
 
     def _loop(self) -> None:
-        fails = 0
-        while not self._stop.is_set():
-            ok, frame = self._cap.read()
-            if not ok or frame is None:
-                fails += 1
-                time.sleep(0.02 if fails < 50 else 0.2)
-                continue
-            fails = 0
+        opened = _open_webcam_device(self.index)
+        if opened is None:
+            self._ready.set()
+            return
+        cap, first = opened
+        try:
             with self._cond:
-                self._frame, self._seq = frame, self._seq + 1
-                self._cond.notify_all()
-        self._cap.release()
+                self._frame, self._seq, self.ok = first, 1, True
+            self._ready.set()
+            fails = 0
+            while not self._stop.is_set():
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    fails += 1
+                    time.sleep(0.02 if fails < 50 else 0.2)
+                    continue
+                fails = 0
+                with self._cond:
+                    self._frame, self._seq = frame, self._seq + 1
+                    self._cond.notify_all()
+        finally:
+            cap.release()  # same thread that opened the device
 
     def read(self, last_seq: int, timeout: float = 1.0) -> tuple[bool, np.ndarray | None, int]:
         with self._cond:
             if self._seq == last_seq:
                 self._cond.wait(timeout)
-            if self._seq == last_seq:
+            if self._seq == last_seq or self._frame is None:
                 return False, None, last_seq
             return True, self._frame.copy(), self._seq
 
@@ -164,8 +177,13 @@ class _SharedWebcam:
             self._refs -= 1
             if self._refs > 0:
                 return
-            _WEBCAMS.pop(self.index, None)
+            if _WEBCAMS.get(self.index) is self:
+                _WEBCAMS.pop(self.index, None)
+        self.close()
+
+    def close(self) -> None:
         self._stop.set()
+        self._thread.join(timeout=5.0)  # wait until the device is really released
 
 
 class SharedWebcamHandle:
@@ -240,10 +258,16 @@ def _open_shared_webcam(requested: int) -> OpenedCapture:
         with _WEBCAMS_LOCK:
             cam = _WEBCAMS.get(idx)
             if cam is None:
-                opened = _open_webcam_device(idx)
-                if opened is None:
+                cam = None
+                for _attempt in range(3):  # a just-stopped session may still be releasing it
+                    cand = _SharedWebcam(idx)
+                    if cand.ok:
+                        cam = cand
+                        break
+                    cand.close()
+                    time.sleep(0.5)
+                if cam is None:
                     continue
-                cam = _SharedWebcam(idx, *opened)
                 _WEBCAMS[idx] = cam
             handle = SharedWebcamHandle(cam)
         ok, frame = handle.read()

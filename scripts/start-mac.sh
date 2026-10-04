@@ -8,6 +8,7 @@
 #   ./scripts/start-mac.sh setup     # one-time: Python 3.12 venv + dependencies
 #   ./scripts/start-mac.sh           # start (API in foreground, Ctrl+C to stop)
 #   ./scripts/start-mac.sh -d        # start with API in background (logs/api-mac.log)
+#   ./scripts/start-mac.sh restart   # restart only the API (background)
 #   ./scripts/start-mac.sh status
 #   ./scripts/start-mac.sh stop
 set -euo pipefail
@@ -32,9 +33,9 @@ export DATABASE_URL="postgresql+psycopg://${POSTGRES_USER:-vigilant}:${POSTGRES_
 export PYTHONPATH="$ROOT/backend:$ROOT/ai"
 export YOLO_CONFIG_DIR="$LOG_DIR/ultralytics"
 # Real-time defaults for a laptop CPU (override in .env)
-export LIVE_IMGSZ="${LIVE_IMGSZ:-480}"
-export LIVE_DETECT_EVERY="${LIVE_DETECT_EVERY:-1}"
-export UFM_POSTURE_EVERY="${UFM_POSTURE_EVERY:-2}"
+export LIVE_IMGSZ="${LIVE_IMGSZ:-384}"
+export LIVE_DETECT_EVERY="${LIVE_DETECT_EVERY:-2}"
+export UFM_POSTURE_EVERY="${UFM_POSTURE_EVERY:-3}"
 
 api_running() { [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; }
 
@@ -84,9 +85,18 @@ start() {
   fi
 }
 
+stop_api() {
+  api_running || { rm -f "$PID_FILE"; return 0; }
+  local pid; pid="$(cat "$PID_FILE")"
+  kill "$pid" 2>/dev/null || true
+  # Open camera streams / websockets can keep uvicorn alive; force after 10 s
+  for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+  kill -9 "$pid" 2>/dev/null || true
+  rm -f "$PID_FILE"; echo "API stopped"
+}
+
 stop() {
-  if api_running; then kill "$(cat "$PID_FILE")" && echo "API stopped"; fi
-  rm -f "$PID_FILE"
+  stop_api
   docker compose stop frontend db
 }
 
@@ -101,5 +111,6 @@ case "${1:-}" in
   stop) stop ;;
   status) status ;;
   -d|"") start "${1:-}" ;;
-  *) echo "usage: $0 [setup|-d|status|stop]"; exit 1 ;;
+  restart) stop_api; start -d ;;
+  *) echo "usage: $0 [setup|-d|restart|status|stop]"; exit 1 ;;
 esac

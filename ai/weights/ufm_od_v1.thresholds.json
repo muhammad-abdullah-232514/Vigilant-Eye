@@ -1,0 +1,56 @@
+{
+  "weights": "ufm_od_v1.pt",
+  "tuned_at": "2026-10-04T23:32:46",
+  "split": "val",
+  "confirm_precision_target": 0.9,
+  "review_precision_target": 0.75,
+  "classes": {
+    "mobile_phone": {
+      "review_min": 0.337,
+      "confirm_min": 0.65,
+      "val_recall_at_confirm": 0.378,
+      "val_recall_at_review": 0.57,
+      "target_precision_reached": false,
+      "max_f1_conf": 0.337
+    },
+    "laptop": {
+      "review_min": 0.687,
+      "confirm_min": 0.838,
+      "val_recall_at_confirm": 0.412,
+      "val_recall_at_review": 0.532,
+      "target_precision_reached": false,
+      "max_f1_conf": 0.687
+    },
+    "smart_watch": {
+      "review_min": 0.3,
+      "confirm_min": 0.45,
+      "basis": "watch-presence gate; smart vs normal decided by CLIP crop verifier (p_smart >= 0.80)",
+      "detector_only": {
+        "review_min": 0.029,
+        "confirm_min": 0.057,
+        "val_recall_at_confirm": 0.264,
+        "val_recall_at_review": 0.57,
+        "target_precision_reached": false,
+        "max_f1_conf": 0.029
+      }
+    },
+    "notes_paper": {
+      "review_min": 0.4,
+      "confirm_min": 0.6,
+      "val_recall_at_confirm": 0.182,
+      "val_recall_at_review": 0.35,
+      "target_precision_reached": false,
+      "max_f1_conf": 0.186,
+      "manual_override": "raised from tuned 0.30/0.42: live test showed a phone back in low light scored notes_paper 0.44"
+    },
+    "electronic_gadget": {
+      "review_min": 0.3,
+      "confirm_min": 0.542,
+      "val_recall_at_confirm": 0.177,
+      "val_recall_at_review": 0.37,
+      "target_precision_reached": false,
+      "max_f1_conf": 0.161
+    }
+  },
+  "review_floor": 0.3
+}

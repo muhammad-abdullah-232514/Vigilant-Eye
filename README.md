@@ -166,7 +166,7 @@ Open http://localhost:5173 → Live Monitoring → **Start Monitoring** on a cam
 |---|---|---|
 | `YOLO_MODEL` | `auto` | `auto` = trained UFM detector if `ai/weights/ufm_od_v1.pt` exists, else COCO; `custom`; `coco` |
 | `YOLO_CUSTOM_WEIGHTS` | `ai/weights/ufm_od_v1.pt` | path to the trained detector |
-| `LIVE_IMGSZ` | `480` (Mac script) | inference size — lower = faster |
+| `LIVE_IMGSZ` | `384` (Mac script) | inference size — lower = faster |
 | `UFM_CONFIRM_FRAMES` | `3` | consecutive detections before an alert (persistence) |
 | `UFM_PERSIST_COOLDOWN_SEC` | `45` | mute repeat alerts for the same object/place |
 | `UFM_CONF_<CLASS>_CONFIRM` | per class | confidence gate, e.g. `UFM_CONF_MOBILE_PHONE_CONFIRM=0.6` |

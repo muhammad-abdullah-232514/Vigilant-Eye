@@ -56,7 +56,7 @@ def abs_data_yaml() -> Path:
 def train(args, data: Path, device: str) -> Path:
     from ultralytics import YOLO
 
-    name = "ufm_od_v1_local"
+    name = args.name
     last = RUNS / name / "weights" / "last.pt"
     if args.resume and last.exists():
         YOLO(str(last)).train(resume=True)
@@ -80,6 +80,7 @@ def train(args, data: Path, device: str) -> Path:
             plots=True,
             cache=False,
             amp=device != "cpu",
+            **({"optimizer": "AdamW", "lr0": args.lr0, "warmup_epochs": 0} if args.lr0 else {}),
         )
     return RUNS / name / "weights" / "best.pt"
 
@@ -160,6 +161,8 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--fraction", type=float, default=1.0, help="train on a fraction of train split")
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--name", default="ufm_od_v1_local")
+    ap.add_argument("--lr0", type=float, default=None, help="fine-tune LR (e.g. 0.0005 when continuing)")
     ap.add_argument("--eval-only", action="store_true")
     ap.add_argument("--weights", type=Path, default=None)
     args = ap.parse_args()

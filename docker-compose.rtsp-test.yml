@@ -7,7 +7,7 @@
 # (or rtsp://host.docker.internal:8554/cam1 if the API runs inside Docker),
 # then Start Monitoring. Stop with:  docker compose -f docker-compose.rtsp-test.yml down
 #
-# Override the looped clip (must be in ai/samples/):  RTSP_TEST_FILE_NAME=other.mp4 docker compose -f ... up -d
+# Loop another clip under ai/:  RTSP_TEST_FILE=eval_videos/pexels_7092117.mp4 docker compose -f ... up -d
 
 services:
   mediamtx:
@@ -21,17 +21,17 @@ services:
     depends_on:
       - mediamtx
     volumes:
-      - ./ai/samples:/media:ro
+      - ./ai:/media/ai:ro
     entrypoint: ["/bin/sh", "-c"]
-    # -re = real-time pacing, loop forever, H.264 like a typical IP camera
+    # -re = real-time pacing, loop forever; 720p/15 fps H.264 like a typical CCTV sub-stream
     command:
       - >-
         sleep 2; while true; do
         ffmpeg -hide_banner -loglevel warning -re -stream_loop -1
-        -i /media/$${RTSP_FILE:-sample_exam_clip.mp4}
-        -c:v libx264 -preset veryfast -tune zerolatency -g 30 -an
+        -i /media/ai/$${RTSP_FILE}
+        -vf "scale='min(1280,iw)':-2,fps=15" -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -an
         -f rtsp -rtsp_transport tcp rtsp://mediamtx:8554/cam1;
         sleep 2; done
     environment:
-      RTSP_FILE: ${RTSP_TEST_FILE_NAME:-sample_exam_clip.mp4}
+      RTSP_FILE: ${RTSP_TEST_FILE:-samples/sample_exam_clip.mp4}
     restart: unless-stopped

@@ -70,6 +70,10 @@ LIVE_JPEG_QUALITY = int(os.getenv("LIVE_JPEG_QUALITY", "70"))
 # COCO class ids that matter for exam UFM (skips persons/chairs → faster + cleaner)
 # 63 laptop, 64 mouse, 66 keyboard, 67 cell phone, 73 book
 COCO_UFM_CLASS_IDS = [63, 64, 66, 67, 73]
+# Custom detector: low predict floor; per-class gates come from the tuned thresholds
+CUSTOM_PREDICT_FLOOR = float(os.getenv("UFM_CUSTOM_PREDICT_FLOOR", "0.12"))
+# Minimum detector confidence for a watch box before smart/normal verification
+WATCH_PRESENCE_MIN = float(os.getenv("UFM_WATCH_PRESENCE_MIN", "0.25"))
 
 
 def _redact_source(url: str | None) -> str:
@@ -789,10 +793,14 @@ class LiveStreamManager:
                 loop_i += 1
                 time.sleep(0.02)
 
-            cap.release()
         except Exception as exc:  # noqa: BLE001 — surface to UI
             session.error = str(exc)
         finally:
+            # Always give the camera back (shared webcam refcount / RTSP socket)
+            try:
+                cap.release()  # noqa: F821 — bound once the source opened
+            except Exception:  # noqa: BLE001
+                pass
             session.running = False
 
     def _draw_labels(
@@ -842,7 +850,9 @@ class LiveStreamManager:
         self._ensure_model()
         assert self._model is not None
 
-        conf_gate = max(0.18, min(float(conf), 0.30))
+        # COCO: fixed gate. Custom detector: low floor (tuned per-class gates are applied
+        # afterwards in detection_policy) so weak-but-real classes reach the policy.
+        conf_gate = max(0.18, min(float(conf), 0.30)) if model_mode == "coco" else CUSTOM_PREDICT_FLOOR
         predict_kwargs: dict[str, Any] = {
             "imgsz": LIVE_IMGSZ,
             "conf": conf_gate,
@@ -866,7 +876,7 @@ class LiveStreamManager:
 
         frame_wh = (int(frame.shape[1]), int(frame.shape[0]))
         labels = self._boxes_to_labels(
-            result, model_mode=model_mode, frame_wh=frame_wh
+            result, model_mode=model_mode, frame_wh=frame_wh, frame=frame
         )
 
         # Merge custom UFM classes (smart_watch, notes_paper, …) when available
@@ -895,29 +905,83 @@ class LiveStreamManager:
         *,
         model_mode: str,
         frame_wh: tuple[int, int],
+        frame: np.ndarray | None = None,
     ) -> list[dict[str, Any]]:
         labels: list[dict[str, Any]] = []
         if result.boxes is None:
             return labels
         names = result.names
+        raw_boxes: list[tuple[str, float, tuple[float, float, float, float]]] = []
         for box in result.boxes:
             cls_id = int(box.cls[0].item())
-            score = float(box.conf[0].item())
             raw = str(names.get(cls_id, str(cls_id)))
-            x1, y1, x2, y2 = [float(v) for v in box.xyxy[0].tolist()]
+            xyxy = tuple(float(v) for v in box.xyxy[0].tolist())
+            raw_boxes.append((raw, float(box.conf[0].item()), xyxy))
+
+        if model_mode != "coco":
+            raw_boxes = self._resolve_watches(raw_boxes, frame)
+            raw_boxes = self._suppress_cross_class(raw_boxes)
+
+        for raw, score, xyxy in raw_boxes:
             item = annotate_detection_dict(
                 raw_label=raw,
                 confidence=score,
                 model_mode=model_mode,
-                xyxy=(x1, y1, x2, y2),
+                xyxy=xyxy,
                 frame_wh=frame_wh,
             )
-            # Always keep mapped UFM categories for on-screen labels
-            if item["decision"] == Decision.IGNORE.value and not item.get("category"):
-                if score < 0.40:
+            if item["decision"] == Decision.IGNORE.value:
+                # Below the class gate: not shown. Allowed objects (ordinary watch) are
+                # drawn grey when confident so invigilators see they were recognised.
+                if item.get("category") or score < 0.40:
                     continue
             labels.append(item)
         return labels
+
+    def _suppress_cross_class(
+        self, boxes: list[tuple[str, float, tuple[float, float, float, float]]]
+    ) -> list[tuple[str, float, tuple[float, float, float, float]]]:
+        """One object, one label: among heavily overlapping boxes of different prohibited
+        classes (e.g. a phone back in low light also scored as notes_paper) keep the most
+        confident one."""
+        ordered = sorted(boxes, key=lambda b: -b[1])
+        kept: list[tuple[str, float, tuple[float, float, float, float]]] = []
+        for b in ordered:
+            if any(k[0] != b[0] and self._iou(b[2], k[2]) > 0.6 for k in kept):
+                continue
+            kept.append(b)
+        return kept
+
+    def _resolve_watches(
+        self,
+        boxes: list[tuple[str, float, tuple[float, float, float, float]]],
+        frame: np.ndarray | None,
+    ) -> list[tuple[str, float, tuple[float, float, float, float]]]:
+        """
+        Merge overlapping smart/normal watch boxes (keep the strongest) and decide the
+        watch type with the CLIP crop verifier. Detector confidence = watch presence.
+        """
+        watch_names = {"smart_watch", "normal_watch"}
+        watches = sorted((b for b in boxes if b[0] in watch_names), key=lambda b: -b[1])
+        others = [b for b in boxes if b[0] not in watch_names]
+        kept: list[tuple[str, float, tuple[float, float, float, float]]] = []
+        for b in watches:
+            if b[1] < WATCH_PRESENCE_MIN:
+                continue
+            if any(self._iou(b[2], k[2]) > 0.45 for k in kept):
+                continue
+            label = b[0]
+            if frame is not None:
+                try:
+                    from watch_verifier import classify
+
+                    verdict = classify(frame, b[2])
+                    if verdict is not None:
+                        label = verdict[0]
+                except Exception:  # noqa: BLE001 — verifier is optional
+                    pass
+            kept.append((label, b[1], b[2]))
+        return others + kept
 
     def _merge_labels(
         self, primary: list[dict[str, Any]], secondary: list[dict[str, Any]]

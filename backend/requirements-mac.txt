@@ -10,3 +10,4 @@ torch==2.2.2
 torchvision==0.17.2
 mediapipe==0.10.21
 lap==0.5.12
+open_clip_torch==2.32.0

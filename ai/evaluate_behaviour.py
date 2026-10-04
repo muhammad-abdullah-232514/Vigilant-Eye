@@ -25,10 +25,16 @@ from pathlib import Path
 
 import cv2
 
-from detection_policy import Decision, SessionTracker, annotate_detection_dict
+import sys
+
+from detection_policy import Decision, SessionTracker
 from ufm_classes import resolve_weights
 
 AI = Path(__file__).resolve().parent
+sys.path.insert(0, str(AI.parent / "backend"))
+from live_stream import CUSTOM_PREDICT_FLOOR, LiveStreamManager  # noqa: E402
+
+_MANAGER = LiveStreamManager()
 VIDEOS = AI / "eval_videos"
 
 
@@ -48,14 +54,15 @@ def run_clip(model, mode: str, path: Path, fps: float, imgsz: int, max_sec: floa
                 s = 1280 / max(h, w)
                 frame = cv2.resize(frame, (int(w * s), int(h * s)))
             t0 = time.perf_counter()
-            res = model.predict(frame, imgsz=imgsz, conf=0.2, verbose=False)[0]
+            floor = CUSTOM_PREDICT_FLOOR if mode != "coco" else 0.2
+            res = model.predict(frame, imgsz=imgsz, conf=floor, verbose=False)[0]
+            # identical post-processing to live monitoring (watch verifier, per-class gates)
+            items = _MANAGER._boxes_to_labels(res, model_mode=mode,
+                                              frame_wh=(frame.shape[1], frame.shape[0]), frame=frame)
             t_inf += time.perf_counter() - t0
             now = idx / src_fps
-            for box in res.boxes:
-                raw = res.names[int(box.cls[0])]
-                xyxy = tuple(float(v) for v in box.xyxy[0].tolist())
-                item = annotate_detection_dict(raw_label=raw, confidence=float(box.conf[0]), model_mode=mode,
-                                               xyxy=xyxy, frame_wh=(frame.shape[1], frame.shape[0]))
+            for item in items:
+                xyxy = tuple(item["xyxy"])
                 if not item["category"] or item["decision"] == Decision.IGNORE.value:
                     continue
                 emit = tracker.observe(category=item["category"], decision=Decision(item["decision"]),
