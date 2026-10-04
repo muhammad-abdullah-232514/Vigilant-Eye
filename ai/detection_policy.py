@@ -33,6 +33,7 @@ class Decision(str, Enum):
 PROHIBITED_CATEGORIES = frozenset(
     {
         "mobile_phone",
+        "laptop",
         "smart_watch",
         "notes_paper",
         "electronic_gadget",
@@ -100,6 +101,7 @@ COCO_EXCLUDE_FROM_UFM = frozenset(
 DEFAULT_THRESHOLDS: dict[str, tuple[float, float]] = {
     # (review_min, confirm_min) — live labeling; retune on your footage
     "mobile_phone": (0.32, 0.55),
+    "laptop": (0.40, 0.60),
     "smart_watch": (0.35, 0.58),
     "notes_paper": (0.35, 0.62),
     "electronic_gadget": (0.40, 0.65),
@@ -158,7 +160,10 @@ def map_raw_to_category(raw_label: str, *, model_mode: str = "coco") -> str | No
     if raw in coco_phone:
         return "mobile_phone"
 
-    coco_gadget = {"laptop", "keyboard", "mouse"}  # remote excluded
+    if raw in {"laptop", "tablet", "tablet computer", "ipad"}:
+        return "laptop"
+
+    coco_gadget = {"keyboard", "mouse", "earbuds", "earphone", "headphones"}  # remote excluded
     if raw in coco_gadget:
         return "electronic_gadget"
 
@@ -268,11 +273,32 @@ class TrackState:
     last_seen: float = 0.0
     best_conf: float = 0.0
     last_decision: Decision = Decision.IGNORE
+    center: tuple[float, float] | None = None
+    size: float = 0.0
+
+
+@dataclass
+class _Emit:
+    category: str
+    center: tuple[float, float] | None
+    size: float
+    at: float
+    level: Decision
 
 
 @dataclass
 class SessionTracker:
-    """Per-camera temporal confirmation state."""
+    """
+    Per-camera temporal confirmation state.
+
+    Persistence: an object must be seen in `confirm_frames` (or `review_frames`)
+    consecutive detection passes before an event is emitted.
+    Association: detections of the same category are matched to the nearest
+    live track by box centre (falls back to the coarse `bin_id` when no box).
+    Cooldown: after an emit, the same category near the same place is muted for
+    `cooldown_sec` — even if the track was lost and re-created — except that a
+    REVIEW may still escalate once to CONFIRM.
+    """
 
     confirm_frames: int = DEFAULT_CONFIRM_FRAMES
     review_frames: int = DEFAULT_REVIEW_FRAMES
@@ -280,9 +306,52 @@ class SessionTracker:
     cooldown_sec: float = DEFAULT_COOLDOWN_SEC
     tracks: dict[str, TrackState] = field(default_factory=dict)
     last_emit_at: dict[str, float] = field(default_factory=dict)
+    emits: list[_Emit] = field(default_factory=list)
+    _next_id: int = 0
 
     def _key(self, category: str, bin_id: str) -> str:
         return f"{category}@{bin_id}"
+
+    @staticmethod
+    def _geom(xyxy) -> tuple[tuple[float, float], float]:
+        x1, y1, x2, y2 = (float(v) for v in xyxy)
+        return ((x1 + x2) / 2.0, (y1 + y2) / 2.0), max(x2 - x1, y2 - y1, 1e-6)
+
+    @staticmethod
+    def _near(c1, s1: float, c2, s2: float) -> bool:
+        if c1 is None or c2 is None:
+            return False
+        d = ((c1[0] - c2[0]) ** 2 + (c1[1] - c2[1]) ** 2) ** 0.5
+        slack = 0.02 if max(s1, s2) <= 2 else 20.0  # normalized coords vs pixels
+        return d <= 0.75 * max(s1, s2) + slack
+
+    def _match(self, category: str, center, size: float, now: float) -> str:
+        best, best_d = None, None
+        for key, t in self.tracks.items():
+            if not key.startswith(category + "#") or (now - t.last_seen) > self.stale_sec:
+                continue
+            if self._near(center, size, t.center, t.size):
+                d = (center[0] - t.center[0]) ** 2 + (center[1] - t.center[1]) ** 2
+                if best_d is None or d < best_d:
+                    best, best_d = key, d
+        if best is None:
+            self._next_id += 1
+            best = f"{category}#{self._next_id}"
+        return best
+
+    def _muted(self, category: str, center, size: float, key: str, decision: Decision, now: float) -> bool:
+        self.emits = [e for e in self.emits if (now - e.at) < self.cooldown_sec]
+        for e in self.emits:
+            if e.category != category:
+                continue
+            same_place = center is None or e.center is None or self._near(center, size, e.center, e.size)
+            if not same_place:
+                continue
+            if decision == Decision.CONFIRM and e.level == Decision.REVIEW:
+                continue  # allow one escalation REVIEW -> CONFIRM
+            return True
+        last = self.last_emit_at.get(key)
+        return last is not None and (now - last) < self.cooldown_sec and center is None
 
     def observe(
         self,
@@ -292,6 +361,7 @@ class SessionTracker:
         confidence: float,
         bin_id: str,
         now: float | None = None,
+        xyxy: tuple[float, float, float, float] | None = None,
     ) -> Decision | None:
         """
         Update streak for this track. Returns:
@@ -303,7 +373,12 @@ class SessionTracker:
             return None
 
         now = now if now is not None else time.monotonic()
-        key = self._key(category, bin_id)
+        if xyxy is not None:
+            center, size = self._geom(xyxy)
+            key = self._match(category, center, size, now)
+        else:
+            center, size = None, 0.0
+            key = self._key(category, bin_id)
         track = self.tracks.get(key)
         if track is None or (now - track.last_seen) > self.stale_sec:
             track = TrackState()
@@ -312,6 +387,7 @@ class SessionTracker:
         track.last_seen = now
         track.best_conf = max(track.best_conf, confidence)
         track.last_decision = decision
+        track.center, track.size = center, size
 
         if decision == Decision.CONFIRM:
             track.frames_confirm_level += 1
@@ -320,29 +396,19 @@ class SessionTracker:
             track.frames_review_level += 1
             track.frames_confirm_level = 0
 
-        last_emit = self.last_emit_at.get(key)
-        # Missing key = never emitted (do not treat default 0.0 as an emit time).
-        if last_emit is not None and (now - last_emit) < self.cooldown_sec:
+        ready = None
+        if decision == Decision.CONFIRM and track.frames_confirm_level >= self.confirm_frames:
+            ready = Decision.CONFIRM
+        elif decision == Decision.REVIEW and track.frames_review_level >= self.review_frames:
+            ready = Decision.REVIEW
+        if ready is None or self._muted(category, center, size, key, ready, now):
             return None
 
-        if (
-            decision == Decision.CONFIRM
-            and track.frames_confirm_level >= self.confirm_frames
-        ):
-            self.last_emit_at[key] = now
-            track.frames_confirm_level = 0
-            track.frames_review_level = 0
-            return Decision.CONFIRM
-
-        if (
-            decision == Decision.REVIEW
-            and track.frames_review_level >= self.review_frames
-        ):
-            self.last_emit_at[key] = now
-            track.frames_review_level = 0
-            return Decision.REVIEW
-
-        return None
+        self.last_emit_at[key] = now
+        self.emits.append(_Emit(category, center, size, now, ready))
+        track.frames_confirm_level = 0
+        track.frames_review_level = 0
+        return ready
 
     def prune(self, now: float | None = None) -> None:
         now = now if now is not None else time.monotonic()

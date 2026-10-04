@@ -1,4 +1,4 @@
-"""Weights resolution: COCO by default; custom only when YOLO_USE_CUSTOM=1."""
+"""Weights resolution: YOLO_MODEL=auto|custom|coco with COCO as the fallback."""
 
 from __future__ import annotations
 
@@ -8,24 +8,46 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ai"))
 
-from ufm_classes import default_custom_weights, default_coco_weights, resolve_weights  # noqa: E402
+from ufm_classes import default_coco_weights, resolve_weights  # noqa: E402
 
 
-def test_default_prefers_coco(monkeypatch):
-    monkeypatch.delenv("YOLO_USE_CUSTOM", raising=False)
+def _clear(monkeypatch):
+    for k in ("YOLO_MODEL", "YOLO_USE_CUSTOM", "YOLO_CUSTOM_WEIGHTS"):
+        monkeypatch.delenv(k, raising=False)
+
+
+def test_auto_prefers_custom_when_present(monkeypatch, tmp_path):
+    _clear(monkeypatch)
+    w = tmp_path / "ufm.pt"
+    w.write_bytes(b"x")
+    monkeypatch.setenv("YOLO_CUSTOM_WEIGHTS", str(w))
     path, mode = resolve_weights(None)
-    coco = default_coco_weights()
-    if coco.is_file():
-        assert mode == "coco"
-        assert path == coco.resolve()
-    else:
-        assert mode in {"coco", "custom"}
+    assert (path, mode) == (w.resolve(), "custom")
 
 
-def test_force_custom(monkeypatch):
-    monkeypatch.setenv("YOLO_USE_CUSTOM", "1")
+def test_auto_falls_back_to_coco(monkeypatch, tmp_path):
+    _clear(monkeypatch)
+    monkeypatch.setenv("YOLO_CUSTOM_WEIGHTS", str(tmp_path / "missing.pt"))
+    _, mode = resolve_weights(None)
+    assert mode == "coco"
+
+
+def test_force_coco(monkeypatch, tmp_path):
+    _clear(monkeypatch)
+    w = tmp_path / "ufm.pt"
+    w.write_bytes(b"x")
+    monkeypatch.setenv("YOLO_CUSTOM_WEIGHTS", str(w))
+    monkeypatch.setenv("YOLO_MODEL", "coco")
     path, mode = resolve_weights(None)
-    custom = default_custom_weights()
-    if custom.is_file():
-        assert mode == "custom"
-        assert path == custom.resolve()
+    assert mode == "coco"
+    if default_coco_weights().is_file():
+        assert path == default_coco_weights().resolve()
+
+
+def test_legacy_flag_disables_custom(monkeypatch, tmp_path):
+    _clear(monkeypatch)
+    w = tmp_path / "ufm.pt"
+    w.write_bytes(b"x")
+    monkeypatch.setenv("YOLO_CUSTOM_WEIGHTS", str(w))
+    monkeypatch.setenv("YOLO_USE_CUSTOM", "0")
+    assert resolve_weights(None)[1] == "coco"

@@ -37,7 +37,9 @@ def _f(name: str, default: float) -> float:
 
 MAX_SCORE = _f("UFM_SCORE_MAX", 100.0)
 DECAY_PER_SEC = _f("UFM_SCORE_DECAY_PER_SEC", 0.35)
-YAW_WEIGHT_PER_SEC = _f("UFM_SCORE_YAW_WEIGHT", 2.2)
+# Points per second while the head stays turned past UFM_YAW_ALERT_DEG
+# (14/s -> ~4-5 s of sustained turning reaches REVIEW_REQUIRED).
+YAW_WEIGHT_PER_SEC = _f("UFM_SCORE_YAW_WEIGHT", 14.0)
 TURN_BURST_WEIGHT = _f("UFM_SCORE_TURN_BURST", 8.0)
 OBJECT_CONFIRM_WEIGHT = _f("UFM_SCORE_OBJECT_CONFIRM", 35.0)
 OBJECT_REVIEW_WEIGHT = _f("UFM_SCORE_OBJECT_REVIEW", 12.0)
@@ -63,7 +65,7 @@ class ScoreState:
     yaw_episode_start: float | None = None
     yaw_episode_credited: bool = False
     recent_turns: list[float] = field(default_factory=list)
-    last_alert_at: float = 0.0
+    last_alert_at: float = float("-inf")
     last_level: str = "NORMAL"
     contributors: list[dict[str, Any]] = field(default_factory=list)
 
@@ -113,6 +115,7 @@ class SuspicionEngine:
         """
         now = now if now is not None else time.monotonic()
         st = self._state(track_id)
+        dt = min(1.0, max(0.0, now - st.last_t))  # wall time since last update
         self._decay(st, now)
 
         if quality == "unavailable" or yaw_deg is None:
@@ -137,10 +140,8 @@ class SuspicionEngine:
                 st.yaw_episode_credited = False
             elapsed = now - st.yaw_episode_start
             # Continuous contribution proportional to time in turn
-            add = YAW_WEIGHT_PER_SEC * min(elapsed, 0.5)  # capped chunk per call
-            # Better: credit only the dt since last update while turned
-            # Recompute using last_t already advanced — use small fixed slice
-            add = YAW_WEIGHT_PER_SEC * 0.25
+            # Time-based credit so the score does not depend on processing FPS
+            add = YAW_WEIGHT_PER_SEC * dt
             if elapsed >= YAW_EPISODE_MIN_SEC:
                 st.score = min(MAX_SCORE, st.score + add)
                 self._note(st, "head_yaw", f"|yaw|={yaw_deg:.0f}°", add)

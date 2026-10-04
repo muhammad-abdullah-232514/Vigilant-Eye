@@ -14,6 +14,7 @@ AI_ROOT = Path(__file__).resolve().parent
 # Target custom-detector vocabulary (train for these — do not invent under COCO)
 UFM_CLASS_NAMES = [
     "mobile_phone",
+    "laptop",  # laptops + tablets
     "smart_watch",
     "normal_watch",  # ALLOWED — required to stop watch↔phone confusion
     "notes_paper",
@@ -24,6 +25,7 @@ UFM_CLASS_NAMES = [
 # Custom YOLO class name -> backend violation_type (normal_watch has none)
 CLASS_TO_VIOLATION = {
     "mobile_phone": "MOBILE_PHONE",
+    "laptop": "ELECTRONIC_GADGET",
     "smart_watch": "SMART_WATCH",
     "notes_paper": "NOTES_PAPER",
     "electronic_gadget": "ELECTRONIC_GADGET",
@@ -45,7 +47,7 @@ COCO_ALIASES_TO_CLASS = {
     "mobile phone": "mobile_phone",
     "phone": "mobile_phone",
     "handphone": "mobile_phone",
-    "laptop": "electronic_gadget",
+    "laptop": "laptop",
     "keyboard": "electronic_gadget",
     "mouse": "electronic_gadget",
     "book": "notes_paper",
@@ -100,21 +102,48 @@ def is_ufm_watchlist(raw_label: str, *, model_mode: str = "coco") -> bool:
     return decision != Decision.IGNORE
 
 
+WEIGHTS_DIR = AI_ROOT / "weights"
+
+# Human-readable names for overlays / alerts (internal category -> display)
+DISPLAY_NAMES = {
+    "mobile_phone": "phone",
+    "laptop": "laptop/tablet",
+    "smart_watch": "smartwatch",
+    "normal_watch": "watch",
+    "notes_paper": "notes/paper",
+    "electronic_gadget": "earbuds/gadget",
+    "looking_away": "looking away",
+}
+
+
+def display_name(category: str | None) -> str:
+    return DISPLAY_NAMES.get(category or "", (category or "").replace("_", " "))
+
+
 def default_custom_weights() -> Path:
-    return AI_ROOT / "runs" / "train" / "ufm_custom" / "weights" / "best.pt"
+    """Custom UFM detector: YOLO_CUSTOM_WEIGHTS or ai/weights/ufm_od_v1.pt."""
+    import os
+
+    env = os.getenv("YOLO_CUSTOM_WEIGHTS", "").strip()
+    if env:
+        p = Path(env)
+        return p if p.is_absolute() else (AI_ROOT.parent / p)
+    return WEIGHTS_DIR / "ufm_od_v1.pt"
 
 
 def default_coco_weights() -> Path:
-    return AI_ROOT / "weights" / "yolov8n.pt"
+    return WEIGHTS_DIR / "yolov8n.pt"
 
 
 def resolve_weights(explicit: str | None = None) -> tuple[Path, str]:
     """
     Pick weights for live / offline inference.
 
-    Default: COCO yolov8n (reliable phone / book / laptop on exam footage).
-    Custom best.pt is only used when YOLO_USE_CUSTOM=1 — the current
-    ufm_custom checkpoint often returns empty predictions on real samples.
+    YOLO_MODEL = auto (default) | custom | coco
+      auto   -> trained UFM detector if its weights file exists, else COCO yolov8n
+      custom -> trained UFM detector (falls back to COCO with a warning if missing)
+      coco   -> stock COCO yolov8n (phone / laptop / book only)
+    Legacy: YOLO_USE_CUSTOM=1 == custom, YOLO_USE_CUSTOM=0 == coco.
 
     Returns (path, mode) where mode is 'explicit' | 'custom' | 'coco'.
     """
@@ -126,16 +155,23 @@ def resolve_weights(explicit: str | None = None) -> tuple[Path, str]:
             return path.resolve(), "explicit"
         raise FileNotFoundError(f"Weights not found: {path}")
 
-    flag = os.getenv("YOLO_USE_CUSTOM", "").strip().lower()
-    prefer_custom = flag in {"1", "true", "yes"}
+    choice = os.getenv("YOLO_MODEL", "").strip().lower()
+    if not choice:
+        legacy = os.getenv("YOLO_USE_CUSTOM", "").strip().lower()
+        if legacy in {"1", "true", "yes"}:
+            choice = "custom"
+        elif legacy in {"0", "false", "no"}:
+            choice = "coco"
+        else:
+            choice = "auto"
 
     custom = default_custom_weights()
     coco = default_coco_weights()
 
-    if prefer_custom and custom.is_file():
+    if choice in {"auto", "custom"} and custom.is_file():
         return custom.resolve(), "custom"
-    if coco.is_file():
-        return coco.resolve(), "coco"
-    if custom.is_file():
-        return custom.resolve(), "custom"
+    if choice == "custom":
+        print(f"[weights] YOLO_MODEL=custom but {custom} is missing; using COCO fallback")
+    if not coco.is_file():
+        return Path("yolov8n.pt"), "coco"  # Ultralytics downloads it on first use
     return coco.resolve(), "coco"
