@@ -20,7 +20,14 @@ PID_FILE="$LOG_DIR/api-mac.pid"
 mkdir -p "$LOG_DIR"
 
 [ -f .env ] || cp .env.example .env
-set -a; . ./.env; set +a
+# Load .env like Docker Compose does (values may contain spaces; no shell evaluation)
+while IFS= read -r line || [ -n "$line" ]; do
+  case "$line" in ''|'#'*) continue ;; esac
+  key="${line%%=*}"; val="${line#*=}"
+  [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+  val="${val%$'\r'}"; val="${val#\"}"; val="${val%\"}"; val="${val#\'}"; val="${val%\'}"
+  export "$key=$val"
+done < .env
 export DATABASE_URL="postgresql+psycopg://${POSTGRES_USER:-vigilant}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_HOST_PORT:-15432}/${POSTGRES_DB:-vigilant_eye}"
 export PYTHONPATH="$ROOT/backend:$ROOT/ai"
 export YOLO_CONFIG_DIR="$LOG_DIR/ultralytics"
