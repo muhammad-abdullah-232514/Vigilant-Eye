@@ -125,8 +125,35 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-def thresholds_for(category: str) -> tuple[float, float]:
-    review_min, confirm_min = DEFAULT_THRESHOLDS.get(category, (0.55, 0.80))
+_CUSTOM_THRESHOLDS: dict[str, tuple[float, float]] | None = None
+
+
+def custom_thresholds() -> dict[str, tuple[float, float]]:
+    """
+    Per-class (review_min, confirm_min) tuned on the VALIDATION split for the
+    trained detector (ai/tune_thresholds.py -> <weights>.thresholds.json).
+    """
+    global _CUSTOM_THRESHOLDS
+    if _CUSTOM_THRESHOLDS is None:
+        import json
+
+        from ufm_classes import default_custom_weights
+
+        path = default_custom_weights().with_suffix(".thresholds.json")
+        data: dict[str, tuple[float, float]] = {}
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            for cat, row in (raw.get("classes") or {}).items():
+                data[cat] = (float(row["review_min"]), float(row["confirm_min"]))
+        except (OSError, ValueError, KeyError, TypeError):
+            data = {}
+        _CUSTOM_THRESHOLDS = data
+    return _CUSTOM_THRESHOLDS
+
+
+def thresholds_for(category: str, model_mode: str = "coco") -> tuple[float, float]:
+    tuned = custom_thresholds() if model_mode == "custom" else {}
+    review_min, confirm_min = tuned.get(category) or DEFAULT_THRESHOLDS.get(category, (0.55, 0.80))
     # Optional global overrides: UFM_CONF_MOBILE_PHONE_CONFIRM=0.75
     key = category.upper()
     review_min = _env_float(f"UFM_CONF_{key}_REVIEW", review_min)
@@ -213,7 +240,7 @@ def decide(
         # Reclassify as notes_paper review candidate, never gadget
         category = "notes_paper"
 
-    review_min, confirm_min = thresholds_for(category)
+    review_min, confirm_min = thresholds_for(category, model_mode)
 
     # Under COCO, "book" → notes_paper must not auto-CONFIRM (answer sheets / QPs).
     if model_mode == "coco" and category == "notes_paper":
