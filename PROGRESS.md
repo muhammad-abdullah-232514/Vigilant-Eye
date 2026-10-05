@@ -39,3 +39,5 @@ training / inference is CPU. 32 GB RAM. Docker Desktop 29.8.
 ## Blockers / things that need you
 
 - (none yet)
+
+- All 3 Master Data cameras set to `webcam:0` (shared MacBook camera) at user request. To restore: camera 2 → `ai/samples/sample_exam_clip.mp4`, camera 3 → `rtsp://127.0.0.1:8554/cam1`.
