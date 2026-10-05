@@ -1,9 +1,9 @@
 {
   "weights": "ufm_od_v1.pt",
-  "tuned_at": "2026-10-05T09:14:11",
+  "tuned_at": "2026-10-05T17:47:24",
   "split": "val",
-  "confirm_precision_target": 0.95,
-  "review_precision_target": 0.85,
+  "confirm_precision_target": 0.9,
+  "review_precision_target": 0.8,
   "classes": {
     "mobile_phone": {
       "review_min": 0.397,
