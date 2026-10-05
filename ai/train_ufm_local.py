@@ -162,13 +162,15 @@ def main() -> None:
     ap.add_argument("--fraction", type=float, default=1.0, help="train on a fraction of train split")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--name", default="ufm_od_v1_local")
+    ap.add_argument("--data", type=Path, default=None, help="dataset yaml (e.g. data_balanced.yaml)")
     ap.add_argument("--lr0", type=float, default=None, help="fine-tune LR (e.g. 0.0005 when continuing)")
     ap.add_argument("--eval-only", action="store_true")
     ap.add_argument("--weights", type=Path, default=None)
     args = ap.parse_args()
 
     device = pick_device()
-    data = abs_data_yaml()
+    data = args.data.resolve() if args.data else abs_data_yaml()
+    eval_data = abs_data_yaml()  # val/test always from the standard yaml
     print(f"device={device} data={data}")
     train_info = {"model": args.model, "hours": args.hours}
 
@@ -183,7 +185,7 @@ def main() -> None:
         shutil.copy2(best, WEIGHTS_OUT)
         print(f"installed {WEIGHTS_OUT}")
 
-    metrics = evaluate(Path(best), data, device, args.imgsz)
+    metrics = evaluate(Path(best), eval_data, device, args.imgsz)
     metrics["train"] = train_info
     EVAL_JSON.parent.mkdir(parents=True, exist_ok=True)
     EVAL_JSON.write_text(json.dumps(metrics, indent=2))
