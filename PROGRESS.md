@@ -41,3 +41,5 @@ training / inference is CPU. 32 GB RAM. Docker Desktop 29.8.
 - (none yet)
 
 - All 3 Master Data cameras set to `webcam:0` (shared MacBook camera) at user request. To restore: camera 2 → `ai/samples/sample_exam_clip.mp4`, camera 3 → `rtsp://127.0.0.1:8554/cam1`.
+
+- Google-only sign-in (user request): AUTH_MODE=google, PASSWORD_LOGIN_ENABLED=0, ENABLE_DEMO_SEED=0 (.env backed up as .env.backup-*). ADMINISTRATOR provisioned: muzzamilwasif.official@gmail.com. The 6 @demo.com users were deactivated (demo.com is a real domain). Revert: AUTH_MODE=demo + `update users set is_active=true where email like '%@demo.com'`.
