@@ -147,6 +147,13 @@ def link_student_roll(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="student_roll is required for STUDENT accounts",
         )
+    if "@" in roll:
+        # An email here creates a second Student record that cases are never filed
+        # against, so the student would never receive case notifications / emails.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Student roll must be the roll number (e.g. 232430), not an email address",
+        )
 
     # Clear other students pointing at this user
     for other in db.scalars(select(Student).where(Student.user_id == user.id)).all():
