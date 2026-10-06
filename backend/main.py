@@ -108,6 +108,7 @@ from schemas.ufm_case import (
 from schemas.user import UserCreate, UserOut
 from security import create_access_token, hash_password, verify_password
 from google_auth import normalize_email, verify_google_id_token
+from student_roll import find_unlinked_student_user
 from student_portal import resolve_linked_student
 from routers.admin_users import router as admin_users_router
 from routers.live import router as live_router
@@ -520,12 +521,19 @@ def create_student(
 
     _validate_student_portal_user(db, student_in.user_id)
 
+    user_id = student_in.user_id
+    if user_id is None:
+        # Auto-link the student's existing portal account (<roll>@...) so case
+        # notifications and emails reach them.
+        match = find_unlinked_student_user(db, student_in.student_id)
+        user_id = match.id if match else None
+
     student = Student(
         student_id=student_in.student_id,
         name=student_in.name,
         department=student_in.department,
         program=student_in.program,
-        user_id=student_in.user_id,
+        user_id=user_id,
     )
     db.add(student)
     db.commit()
@@ -1118,12 +1126,13 @@ def _resolve_filing_student(
         # Prefer existing directory row — do not invent a duplicate roll.
         return existing
 
+    portal_user = find_unlinked_student_user(db, roll)
     student = Student(
         student_id=roll,
         name=ms.name.strip(),
         department=ms.department.strip(),
         program=ms.program.strip(),
-        user_id=None,
+        user_id=portal_user.id if portal_user else None,
     )
     db.add(student)
     db.flush()

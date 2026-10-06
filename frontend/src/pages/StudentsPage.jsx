@@ -225,7 +225,9 @@ export default function StudentsPage() {
             <input
               required
               className={inputClass}
-              placeholder="Roll / student_id"
+              placeholder="Roll number, e.g. 232430 (not email)"
+              pattern="[A-Za-z0-9][A-Za-z0-9\-_\/]{1,49}"
+              title="Roll number (e.g. 232430) — letters, digits, '-', '_' or '/'; not an email address"
               value={form.student_id}
               onChange={(e) =>
                 setForm((p) => ({ ...p, student_id: e.target.value }))

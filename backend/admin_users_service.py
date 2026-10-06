@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from google_auth import normalize_email
 from models.audit_log import AuditLog
 from models.student import Student
+from student_roll import clean_student_roll
 from models.user import User
 from portal_roles import (
     ADMIN_ASSIGNABLE_ROLES,
@@ -141,19 +142,12 @@ def link_student_roll(
             )
         return None
 
-    roll = (student_roll or "").strip()
-    if not roll:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="student_roll is required for STUDENT accounts",
-        )
-    if "@" in roll:
-        # An email here creates a second Student record that cases are never filed
-        # against, so the student would never receive case notifications / emails.
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Student roll must be the roll number (e.g. 232430), not an email address",
-        )
+    try:
+        # Shared rule (student_roll.py): an email here used to create a second, unlinked
+        # Student row, so the student never received case notifications / emails.
+        roll = clean_student_roll(student_roll)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     # Clear other students pointing at this user
     for other in db.scalars(select(Student).where(Student.user_id == user.id)).all():

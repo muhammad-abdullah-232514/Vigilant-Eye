@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from student_roll import clean_student_roll
 
 
 class StudentCreate(BaseModel):
@@ -9,6 +11,11 @@ class StudentCreate(BaseModel):
     department: str = Field(min_length=1, max_length=100)
     program: str = Field(min_length=1, max_length=100)
     user_id: int | None = Field(default=None, gt=0)
+
+    @field_validator("student_id")
+    @classmethod
+    def _valid_roll(cls, value: str) -> str:
+        return clean_student_roll(value)
 
 
 class StudentLinkUser(BaseModel):

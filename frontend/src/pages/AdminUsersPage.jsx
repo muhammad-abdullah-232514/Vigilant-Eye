@@ -584,8 +584,8 @@ export default function AdminUsersPage() {
                 Student roll (link existing or create student record)
                 <input
                   required
-                  pattern="[^@]+"
-                  title="Enter the roll number (e.g. 232430), not an email address"
+                  pattern="[A-Za-z0-9][A-Za-z0-9\-_\/]{1,49}"
+                  title="Roll number (e.g. 232430) — letters, digits, '-', '_' or '/'; not an email address"
                   placeholder="e.g. 232430 (roll number, not email)"
                   className={`${inputClass} mt-1`}
                   value={form.student_roll}

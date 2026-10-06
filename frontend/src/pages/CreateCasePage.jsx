@@ -887,8 +887,13 @@ export default function CreateCasePage() {
       }
     }
     if (!form.student_id) {
-      if (!studentDetails.student_id.trim()) {
+      const roll = studentDetails.student_id.trim();
+      if (!roll) {
         errs.manual_roll = "Roll number is required.";
+      } else if (roll.includes("@")) {
+        errs.manual_roll = "Enter the roll number (e.g. 232430), not an email address.";
+      } else if (!/^[A-Za-z0-9][A-Za-z0-9\-_/]{1,49}$/.test(roll)) {
+        errs.manual_roll = "Roll number may contain only letters, digits, '-', '_' or '/'.";
       }
       if (!studentDetails.name.trim()) {
         errs.manual_name = "Student name is required.";
@@ -1180,6 +1185,7 @@ export default function CreateCasePage() {
               </span>
               <input
                 className="portal-input w-full"
+                placeholder="e.g. 232430"
                 value={studentDetails.student_id}
                 onChange={(e) =>
                   onStudentFieldChange("student_id", e.target.value)
