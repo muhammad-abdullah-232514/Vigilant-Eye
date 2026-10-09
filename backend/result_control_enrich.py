@@ -6,10 +6,13 @@ records. Does not invent statuses, roles, or lifecycle rules.
 
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from models.audit_log import AuditLog
+from models.case_review import CaseReview
 from models.result_control import ResultControl
 from models.student import Student
 from models.ufm_case import UfmCase
@@ -45,6 +48,31 @@ def enrich_result_control(db: Session, control: ResultControl) -> dict:
     )
     created = _hold_created_audit(db, control)
     holder = db.get(User, created.user_id) if created and created.user_id else None
+    committee_review = db.scalar(
+        select(CaseReview)
+        .where(
+            CaseReview.case_id == control.case_id,
+            CaseReview.reviewer_role == "UFM_COMMITTEE",
+            CaseReview.action == "APPROVE",
+        )
+        .order_by(CaseReview.id.desc())
+    )
+    recommendations = (
+        json.loads(committee_review.recommended_penalties)
+        if committee_review and committee_review.recommended_penalties
+        else None
+    )
+    implemented = (
+        json.loads(control.implemented_penalties)
+        if control.implemented_penalties
+        else None
+    )
+    can_release = not recommendations or (
+        case is not None
+        and case.status == "APPROVED"
+        and bool(implemented)
+        and ("FINE" not in recommendations or control.fine_paid)
+    )
 
     reason = control.reason or ""
     automatic = "automatic hold" in reason.lower()
@@ -56,6 +84,11 @@ def enrich_result_control(db: Session, control: ResultControl) -> dict:
         "result_status": control.result_status,
         "transcript_status": control.transcript_status,
         "reason": control.reason,
+        "recommended_penalties": recommendations,
+        "implemented_penalties": implemented,
+        "fine_amount": control.fine_amount,
+        "fine_paid": control.fine_paid,
+        "can_release": can_release,
         "released_at": control.released_at,
         "released_by": control.released_by,
         "student_roll": student.student_id if student else None,
@@ -84,6 +117,11 @@ def result_control_summary_for_case(db: Session, case_id: int) -> dict | None:
         "result_status": enriched["result_status"],
         "transcript_status": enriched["transcript_status"],
         "reason": enriched["reason"],
+        "recommended_penalties": enriched["recommended_penalties"],
+        "implemented_penalties": enriched["implemented_penalties"],
+        "fine_amount": enriched["fine_amount"],
+        "fine_paid": enriched["fine_paid"],
+        "can_release": enriched["can_release"],
         "released_at": enriched["released_at"],
         "released_by": enriched["released_by"],
         "released_by_name": enriched["released_by_name"],

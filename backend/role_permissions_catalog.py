@@ -122,7 +122,7 @@ ROLE_PERMISSION_MATRIX: list[dict] = [
         "title": "Exam Department",
         "summary": "Institution-wide case processing, result controls, and records.",
         "can": [
-            "Process EXAM_DEPARTMENT_REVIEW cases (forward to committee)",
+            "Process EXAM_DEPARTMENT_REVIEW cases and implement Committee decisions",
             "Result holds / releases",
             "Institution-wide reports and case CSV export",
             "Operational audit",
@@ -142,12 +142,11 @@ ROLE_PERMISSION_MATRIX: list[dict] = [
     {
         "role": "UFM_COMMITTEE",
         "title": "UFM Committee",
-        "summary": "Final UFM committee review and decision.",
+        "summary": "Final UFM Committee review, decision, and penalty recommendations.",
         "can": [
             "Review UFM_COMMITTEE_REVIEW cases",
-            "Final APPROVE / REJECT",
+            "APPROVE / REJECT and select recommended penalties",
             "Evidence view",
-            "Result holds / releases",
             "Reports and operational audit",
         ],
         "cannot": [
@@ -157,6 +156,7 @@ ROLE_PERMISSION_MATRIX: list[dict] = [
             "Upload new evidence (Invigilator only)",
             "Live monitoring / detections",
             "Create exam infrastructure",
+            "Implement sanctions or control/release results (Exam Department only)",
         ],
     },
 ]

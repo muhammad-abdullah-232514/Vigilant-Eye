@@ -218,12 +218,12 @@ def test_admin_create_role_activate_deactivate_link(client_db):
             "email": "link.stu@students.au.edu.pk",
             "role": "STUDENT",
             "name": "Link Stu",
-            "student_roll": "NEWROLL20",
+            "student_roll": "200020",
         },
     )
     assert stu_user.status_code == 201
     sid = stu_user.json()["id"]
-    assert stu_user.json()["student_roll"] == "NEWROLL20"
+    assert stu_user.json()["student_roll"] == "200020"
 
     unlink = c.patch(
         f"/admin/users/{sid}",
@@ -236,10 +236,10 @@ def test_admin_create_role_activate_deactivate_link(client_db):
     relink = c.patch(
         f"/admin/users/{sid}",
         headers=h,
-        json={"student_roll": "NEWROLL20"},
+        json={"student_roll": "200020"},
     )
     assert relink.status_code == 200
-    assert relink.json()["student_roll"] == "NEWROLL20"
+    assert relink.json()["student_roll"] == "200020"
 
     actions = {
         a

@@ -3,6 +3,7 @@ import StatusBadge from "./StatusBadge";
 import {
   formatCaseCreatedAt,
   formatViolationLabel,
+  violationLabelClass,
 } from "../config/casePresentation";
 
 function CaseRowMeta({ c }) {
@@ -10,19 +11,6 @@ function CaseRowMeta({ c }) {
     <>
       <div className="font-medium text-slate-800">{c.student_name || "—"}</div>
       <div className="text-xs text-slate-500">{c.student_roll || "—"}</div>
-    </>
-  );
-}
-
-function ExamMeta({ c }) {
-  return (
-    <>
-      <div>{c.exam_course_code || "—"}</div>
-      <div className="text-xs text-slate-500">
-        {[c.exam_date || null, c.room_number ? `Room ${c.room_number}` : null]
-          .filter(Boolean)
-          .join(" · ") || "—"}
-      </div>
     </>
   );
 }
@@ -40,8 +28,8 @@ export default function CaseQueueTable({
   const caseLinkState = { from };
 
   return (
-    <section className={`portal-card min-w-0 overflow-hidden ${className}`}>
-      <div className="portal-panel-header">
+    <section className={`portal-card case-queue-panel min-w-0 overflow-hidden ${className}`}>
+      <div className="portal-panel-header case-queue-header">
         <h2 className="portal-section-title">{title}</h2>
         <Link to={viewAllTo} className="btn-ghost btn-sm shrink-0">
           View all →
@@ -67,14 +55,16 @@ export default function CaseQueueTable({
                   {c.student_roll ? ` · ${c.student_roll}` : ""}
                 </p>
                 <p className="portal-case-card-meta">
+                  <span className={violationLabelClass(c.violation_type)}>
                   {formatViolationLabel(c.violation_type)}
+                  </span>
                   {c.exam_course_code ? ` · ${c.exam_course_code}` : ""}
                 </p>
                 <div className="mt-3">
                   <Link
                     to={`/app/cases/${c.id}`}
                     state={caseLinkState}
-                    className="portal-text-link whitespace-nowrap text-sm"
+                    className="case-open-button"
                   >
                     {actionLabel}
                   </Link>
@@ -83,14 +73,13 @@ export default function CaseQueueTable({
             ))}
           </div>
 
-          {/* Desktop table — min width + scroll so columns never crush */}
+          {/* Desktop table — compact six-column summary stays within the panel */}
           <div className="portal-table-wrap portal-table-desktop">
-            <table className="portal-table portal-queue-table">
+            <table className="portal-table portal-queue-table case-queue-table">
               <thead>
                 <tr>
                   <th className="whitespace-nowrap">Case ID</th>
                   <th>Student</th>
-                  <th className="col-hide-md">Examination</th>
                   <th>Violation</th>
                   <th className="whitespace-nowrap">Status</th>
                   <th className="col-hide-sm whitespace-nowrap">Created</th>
@@ -106,16 +95,15 @@ export default function CaseQueueTable({
                     <td className="min-w-[8rem]">
                       <CaseRowMeta c={c} />
                     </td>
-                    <td className="col-hide-md min-w-[9rem] text-slate-700">
-                      <ExamMeta c={c} />
-                    </td>
                     <td className="whitespace-nowrap">
+                      <span className={violationLabelClass(c.violation_type)}>
                       {formatViolationLabel(c.violation_type)}
+                      </span>
                     </td>
-                    <td className="whitespace-nowrap">
+                    <td>
                       <StatusBadge status={c.status} />
                     </td>
-                    <td className="col-hide-sm whitespace-nowrap text-xs text-slate-500">
+                    <td className="col-hide-sm text-xs text-slate-500">
                       {c.created_at
                         ? formatCaseCreatedAt(c.created_at)
                         : "—"}
@@ -124,7 +112,7 @@ export default function CaseQueueTable({
                       <Link
                         to={`/app/cases/${c.id}`}
                         state={caseLinkState}
-                        className="portal-text-link whitespace-nowrap"
+                        className="case-open-button"
                       >
                         {actionLabel}
                       </Link>

@@ -1,41 +1,46 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { Bell, Menu, UserCircle, X } from "lucide-react";
 
 export default function Header({
   unreadCount = 0,
   onToggleSidebar,
   sidebarOpen = false,
 }) {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const compactRole = user?.role === "INVIGILATOR";
 
   return (
     <header
       data-portal-chrome
-      className="app-chrome z-30 flex h-14 shrink-0 items-center justify-between border-b border-au-navy-deep bg-au-navy px-4 text-white"
+      className={[
+        "app-chrome z-30 flex shrink-0 items-center justify-between border-b border-white/10 bg-au-navy px-4 text-white shadow-lg shadow-slate-950/10 sm:px-6",
+        compactRole ? "h-[60px]" : "h-16",
+      ].join(" ")}
     >
       <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={onToggleSidebar}
-          className="rounded-md p-2 hover:bg-white/10 lg:hidden"
+          className="rounded-lg p-2 hover:bg-white/10 lg:hidden"
           aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
           aria-expanded={sidebarOpen}
           aria-controls="portal-sidebar"
         >
-          <span className="block h-0.5 w-5 bg-white" />
-          <span className="mt-1 block h-0.5 w-5 bg-white" />
-          <span className="mt-1 block h-0.5 w-5 bg-white" />
+          {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-white/15 text-xs font-bold tracking-wide">
-            AU
-          </div>
+          <img
+            src="/au-logo-white.png"
+            alt="Air University"
+            className="h-10 w-auto object-contain"
+          />
           <div>
-            <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-300">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-200">
               Air University
             </p>
-            <p className="text-sm font-semibold leading-tight">
-              VigilantEye · UFM Portal
+            <p className="text-base font-semibold leading-tight tracking-tight">
+              UFM Web Portal
             </p>
           </div>
         </div>
@@ -52,14 +57,7 @@ export default function Header({
           }
           title="Notifications"
         >
-          <svg
-            viewBox="0 0 24 24"
-            className="h-5 w-5 fill-none stroke-current stroke-2"
-            aria-hidden
-          >
-            <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" />
-            <path d="M9 17a3 3 0 0 0 6 0" />
-          </svg>
+          <Bell className="h-5 w-5" aria-hidden />
           {unreadCount > 0 ? (
             <span
               className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-red-500 px-1 text-center text-[10px] font-bold leading-4"
@@ -70,24 +68,15 @@ export default function Header({
           ) : null}
         </Link>
 
-        <div className="hidden max-w-[14rem] text-right sm:block">
+        <div className="hidden max-w-[16rem] text-right sm:block">
           <p className="truncate text-sm font-medium leading-tight" title={user?.name || ""}>
             {user?.name}
           </p>
-          <p className="truncate text-xs text-slate-300" title={user?.email || ""}>
-            <span className="mr-1 inline-flex rounded bg-white/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide">
-              {(user?.role || "").replaceAll("_", " ") || "—"}
-            </span>
+          <p className="truncate text-xs text-blue-200" title={user?.email || ""}>
+            {(user?.role || "").replaceAll("_", " ") || "—"}
           </p>
         </div>
-
-        <button
-          type="button"
-          onClick={logout}
-          className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-        >
-          Logout
-        </button>
+        <UserCircle className="hidden h-9 w-9 text-blue-100 sm:block" />
       </div>
     </header>
   );

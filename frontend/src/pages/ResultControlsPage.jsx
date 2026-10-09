@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import EmptyState from "../components/EmptyState";
 import ErrorBanner from "../components/ErrorBanner";
 import LoadingState from "../components/LoadingState";
@@ -9,10 +9,12 @@ import {
   formatResultStatusLabel,
   formatStatusLabel,
 } from "../config/casePresentation";
+import { penaltyLabel, UFM_PENALTIES } from "../config/ufmPenalties";
 import { RESULT_CONTROL_ROLES } from "../config/roleAccess";
 import { useAuth } from "../context/AuthContext";
 import {
   fetchResultControls,
+  markResultControlFinePaid,
   releaseResultControl,
 } from "../services/api";
 
@@ -78,18 +80,29 @@ function holdSourceLabel(row) {
 
 export default function ResultControlsPage() {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const category = searchParams.get("category") || "result-hold";
   const canView = CAN_VIEW.has(user?.role);
   const canRelease = CAN_RELEASE.has(user?.role);
+  const isResultHoldCategory = category === "result-hold";
+  const isTranscriptCategory = category === "transcript-block";
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busyId, setBusyId] = useState(null);
-  const [statusFilter, setStatusFilter] = useState("HELD");
+  const [categoryFilter, setCategoryFilter] = useState("ALL");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(null);
   const [confirmHold, setConfirmHold] = useState(null);
+  const categoryLabel =
+    category === "result-hold"
+      ? "Result Holds"
+      : category === "transcript-block"
+        ? "Transcript Blocks"
+        : UFM_PENALTIES.find((penalty) => penalty.value === category)?.label ||
+          "Result Controls";
 
   async function load() {
     setLoading(true);
@@ -128,10 +141,46 @@ export default function ResultControlsPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [confirmHold]);
 
+  useEffect(() => {
+    setCategoryFilter("ALL");
+  }, [category]);
+
+  const categoryItems = useMemo(
+    () =>
+      items.filter((r) => {
+        const recommendations = Array.isArray(r.recommended_penalties)
+          ? r.recommended_penalties
+          : [];
+        const implemented = Array.isArray(r.implemented_penalties)
+          ? r.implemented_penalties
+          : [];
+        if (isResultHoldCategory || isTranscriptCategory) return true;
+        return [...recommendations, ...implemented].includes(category);
+      }),
+    [items, category, isResultHoldCategory, isTranscriptCategory]
+  );
+
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
-    return items.filter((r) => {
-      if (statusFilter && r.result_status !== statusFilter) return false;
+    return categoryItems.filter((r) => {
+      if (isResultHoldCategory && categoryFilter !== "ALL") {
+        if (r.result_status !== categoryFilter) return false;
+      } else if (isTranscriptCategory && categoryFilter !== "ALL") {
+        if (r.transcript_status !== categoryFilter) return false;
+      } else if (!isResultHoldCategory && !isTranscriptCategory) {
+        const matchesRecommendation =
+          Array.isArray(r.recommended_penalties) &&
+          r.recommended_penalties.includes(category);
+        const matchesImplementation =
+          Array.isArray(r.implemented_penalties) &&
+          r.implemented_penalties.includes(category);
+        if (
+          (categoryFilter === "RECOMMENDED" && !matchesRecommendation) ||
+          (categoryFilter === "IMPLEMENTED" && !matchesImplementation)
+        ) {
+          return false;
+        }
+      }
       if (!term) return true;
       const hay = [
         r.student_name,
@@ -142,21 +191,73 @@ export default function ResultControlsPage() {
         String(r.case_id),
         r.reason,
         r.result_status,
+        r.transcript_status,
+        r.case_status,
+        ...(r.recommended_penalties || []).map(penaltyLabel),
+        ...(r.implemented_penalties || []).map(penaltyLabel),
+        r.fine_amount == null ? "" : String(r.fine_amount),
+        r.fine_paid ? "fine paid" : "fine unpaid",
+        r.released_by_name,
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
       return hay.includes(term);
     });
-  }, [items, statusFilter, query]);
+  }, [
+    categoryItems,
+    categoryFilter,
+    category,
+    isResultHoldCategory,
+    isTranscriptCategory,
+    query,
+  ]);
 
   const selected =
     filtered.find((r) => r.id === selectedId) ||
     filtered[0] ||
     null;
 
-  const heldCount = items.filter((r) => r.result_status === "HELD").length;
-  const releasedCount = items.filter((r) => r.result_status === "RELEASED").length;
+  const heldCount = categoryItems.filter(
+    (r) => r.result_status === "HELD"
+  ).length;
+  const releasedCount = categoryItems.filter(
+    (r) => r.result_status === "RELEASED"
+  ).length;
+  const blockedTranscriptCount = categoryItems.filter(
+    (r) => r.transcript_status === "BLOCKED"
+  ).length;
+  const allowedTranscriptCount = categoryItems.filter(
+    (r) => r.transcript_status === "ALLOWED"
+  ).length;
+  const recommendedCount = categoryItems.filter(
+    (r) => r.recommended_penalties?.includes(category)
+  ).length;
+  const implementedCount = categoryItems.filter(
+    (r) => r.implemented_penalties?.includes(category)
+  ).length;
+  const filterOptions = isResultHoldCategory
+    ? [
+        { value: "ALL", label: `All (${categoryItems.length})` },
+        { value: "HELD", label: `On Hold (${heldCount})` },
+        { value: "RELEASED", label: `Released (${releasedCount})` },
+      ]
+    : isTranscriptCategory
+      ? [
+          { value: "ALL", label: `All (${categoryItems.length})` },
+          { value: "BLOCKED", label: `Blocked (${blockedTranscriptCount})` },
+          { value: "ALLOWED", label: `Allowed (${allowedTranscriptCount})` },
+        ]
+      : [
+          { value: "ALL", label: `All (${categoryItems.length})` },
+          { value: "RECOMMENDED", label: `Recommended (${recommendedCount})` },
+          { value: "IMPLEMENTED", label: `Implemented (${implementedCount})` },
+        ];
+  const filterLabel = isResultHoldCategory
+    ? "Filter result controls by result status"
+    : isTranscriptCategory
+      ? "Filter result controls by transcript status"
+      : "Filter result controls by penalty implementation";
 
   async function confirmRelease() {
     if (!confirmHold || !canRelease) return;
@@ -183,13 +284,28 @@ export default function ResultControlsPage() {
     }
   }
 
+  async function recordFinePayment(row) {
+    if (!row || busyId) return;
+    setMessage("");
+    setError("");
+    setBusyId(row.id);
+    try {
+      await markResultControlFinePaid(row.id);
+      setMessage(`Fine payment recorded for ${studentPrimary(row)} (${casePrimary(row)}).`);
+      await load();
+    } catch (err) {
+      setError(err.message || "Unable to record fine payment. Please try again.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   if (!canView && !loading) {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
         <p className="font-semibold">Result holds are not available</p>
         <p className="mt-1">
-          This administrative view is limited to Exam Department and UFM
-          Committee accounts.
+          This administrative view is limited to Exam Department accounts.
         </p>
         <Link
           to="/app/dashboard"
@@ -204,38 +320,66 @@ export default function ResultControlsPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        breadcrumb="Home / Result Controls"
-        title="Result Controls"
-        description="Whose examination result is restricted, which UFM case caused it, and how authorized staff release the hold. Holds are applied automatically when a UFM case is Approved — this is separate from case status."
+        breadcrumb={`Home / Result Control / ${categoryLabel}`}
+        title={categoryLabel}
+        description={`Review ${categoryItems.length} matching result ${
+          categoryItems.length === 1 ? "control" : "controls"
+        }, including held and released records. Data reflects the recorded UFM case decisions and Exam Department implementation.`}
       />
 
-      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-        <p className="font-semibold text-au-navy">How result holds work</p>
-        <ol className="mt-2 list-decimal space-y-1 pl-5">
-          <li>
-            UFM Committee <strong>Approves</strong> a case → result hold is
-            created automatically (On Hold / transcript Blocked).
-          </li>
-          <li>
-            <strong>Return</strong>, <strong>Forward</strong>, and{" "}
-            <strong>Reject</strong> do not place or clear a result hold.
-          </li>
-          <li>
-            Exam Department or UFM Committee uses{" "}
-            <strong>Release Result Hold</strong> when the restriction may end.
-          </li>
-        </ol>
-        <p className="mt-2 text-xs text-slate-500">
-          Manual hold creation is available only via the staff API; the portal
-          does not include a place-hold form (approved product scope).
-        </p>
-      </div>
+      <section
+        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+        aria-label={`${categoryLabel} summary`}
+      >
+        {[
+          {
+            label: "Result controls",
+            value: categoryItems.length,
+            detail: "In this category",
+            tone: "text-au-navy",
+          },
+          {
+            label: "On hold",
+            value: heldCount,
+            detail: "Awaiting release",
+            tone: "text-amber-700",
+          },
+          {
+            label: "Released",
+            value: releasedCount,
+            detail: "Result hold cleared",
+            tone: "text-emerald-700",
+          },
+          {
+            label: "Transcript blocked",
+            value: blockedTranscriptCount,
+            detail: "Current transcript status",
+            tone: "text-rose-700",
+          },
+        ].map((metric) => (
+          <div
+            key={metric.label}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
+          >
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              {metric.label}
+            </p>
+            <div className="mt-1 flex items-baseline justify-between gap-2">
+              <p className={`text-2xl font-bold tabular-nums ${metric.tone}`}>
+                {metric.value}
+              </p>
+              <p className="text-xs text-slate-500">{metric.detail}</p>
+            </div>
+          </div>
+        ))}
+      </section>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <label className="block min-w-[16rem] flex-1 text-sm text-slate-600">
           <span className="sr-only">Search student, roll, or case</span>
           <input
             type="search"
+            maxLength={200}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search student / roll number / case ID"
@@ -245,20 +389,17 @@ export default function ResultControlsPage() {
         <div
           className="flex flex-wrap gap-2"
           role="group"
-          aria-label="Result status filter"
+          aria-label={filterLabel}
         >
-          {[
-            { value: "", label: `All (${items.length})` },
-            { value: "HELD", label: `On Hold (${heldCount})` },
-            { value: "RELEASED", label: `Released (${releasedCount})` },
-          ].map((opt) => (
+          {filterOptions.map((opt) => (
             <button
-              key={opt.value || "all"}
+              key={opt.value}
               type="button"
-              onClick={() => setStatusFilter(opt.value)}
+              onClick={() => setCategoryFilter(opt.value)}
+              aria-pressed={categoryFilter === opt.value}
               className={[
                 "rounded-lg px-3 py-1.5 text-sm font-semibold ring-1 ring-inset",
-                statusFilter === opt.value
+                categoryFilter === opt.value
                   ? "bg-au-navy text-white ring-au-navy"
                   : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50",
               ].join(" ")}
@@ -293,8 +434,8 @@ export default function ResultControlsPage() {
         />
       ) : items.length === 0 ? (
         <EmptyState
-          title="No result holds currently require action."
-          detail="When the UFM Committee approves a case, an On Hold record appears here for the affected student."
+          title="No result-control records yet."
+          detail="Records appear here when result controls are created from UFM case decisions."
           actions={
             <Link to="/app/cases" className="btn-secondary">
               View UFM cases
@@ -303,15 +444,33 @@ export default function ResultControlsPage() {
         />
       ) : filtered.length === 0 ? (
         <EmptyState
-          title="No matching result controls."
-          detail="Try another search or status filter."
+          title={`No ${
+            categoryFilter === "HELD"
+              ? "on-hold"
+              : categoryFilter === "RELEASED"
+                ? "released"
+                : categoryFilter === "BLOCKED"
+                  ? "blocked"
+                  : categoryFilter === "ALLOWED"
+                    ? "allowed"
+                    : categoryFilter === "RECOMMENDED"
+                      ? "recommended"
+                      : categoryFilter === "IMPLEMENTED"
+                        ? "implemented"
+                        : "matching"
+          } records in ${categoryLabel.toLowerCase()}.`}
+          detail={
+            query
+              ? "No records in this category match your search. Clear the search or change the result-status filter."
+              : "Try another result-status filter or view all records in this category."
+          }
           actions={
             <button
               type="button"
               className="btn-secondary"
               onClick={() => {
                 setQuery("");
-                setStatusFilter("");
+                setCategoryFilter("ALL");
               }}
             >
               Clear filters
@@ -323,7 +482,7 @@ export default function ResultControlsPage() {
           <div className="portal-split-list min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-100 px-4 py-3">
               <h2 className="text-sm font-semibold text-au-navy">
-                Affected students ({filtered.length})
+                Result controls ({filtered.length})
               </h2>
               <p className="text-xs text-slate-500">
                 Select a student to see hold detail, source case, and release
@@ -362,6 +521,16 @@ export default function ResultControlsPage() {
                         ? ` · Case ${formatStatusLabel(r.case_status)}`
                         : ""}
                     </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-slate-600">
+                        Transcript: {formatStatusLabel(r.transcript_status)}
+                      </span>
+                      {r.result_status === "RELEASED" && r.released_at ? (
+                        <span className="text-xs text-emerald-700">
+                          Released {new Date(r.released_at).toLocaleDateString()}
+                        </span>
+                      ) : null}
+                    </div>
                   </button>
                 );
               })}
@@ -419,13 +588,24 @@ export default function ResultControlsPage() {
                           )}
                         </td>
                         <td>
-                          <ResultStatusBadge status={r.result_status} />
+                          <div className="flex flex-col items-start gap-1">
+                            <ResultStatusBadge status={r.result_status} />
+                            <span className="text-xs text-slate-600">
+                              Transcript: {formatStatusLabel(r.transcript_status)}
+                            </span>
+                          </div>
                         </td>
                         <td>
                           <button
                             type="button"
                             onClick={() => setSelectedId(r.id)}
-                            className="text-sm font-semibold text-au-blue hover:underline"
+                            aria-pressed={active}
+                            className={[
+                              "rounded-md border px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-au-blue",
+                              active
+                                ? "border-au-blue bg-sky-100 text-au-navy"
+                                : "border-slate-200 bg-white text-au-blue hover:border-au-blue hover:bg-sky-50",
+                            ].join(" ")}
                           >
                             View
                           </button>
@@ -473,6 +653,32 @@ export default function ResultControlsPage() {
                       {formatStatusLabel(selected.transcript_status)}
                     </Field>
                     <Field label="Hold reason">{selected.reason || null}</Field>
+                    <Field label="Committee recommendations">
+                      {selected.recommended_penalties?.length
+                        ? selected.recommended_penalties
+                            .map(penaltyLabel)
+                            .join(", ")
+                        : null}
+                    </Field>
+                    <Field label="Fine amount">
+                      {selected.fine_amount != null
+                        ? Number(selected.fine_amount).toFixed(2)
+                        : null}
+                    </Field>
+                    <Field label="Fine payment">
+                      {selected.recommended_penalties?.includes("FINE")
+                        ? selected.fine_paid
+                          ? "Paid"
+                          : "Unpaid"
+                        : null}
+                    </Field>
+                    <Field label="Implemented outcomes">
+                      {selected.implemented_penalties?.length
+                        ? selected.implemented_penalties
+                            .map(penaltyLabel)
+                            .join(", ")
+                        : null}
+                    </Field>
                     <Field label="Source">{holdSourceLabel(selected)}</Field>
                     <Field label="Placed by">
                       {selected.held_by_name ||
@@ -522,10 +728,24 @@ export default function ResultControlsPage() {
                     <Link to="/app/audit" className="btn-ghost btn-sm">
                       Audit history
                     </Link>
-                    {selected.result_status === "HELD" && canRelease ? (
+                    {selected.result_status === "HELD" &&
+                    selected.recommended_penalties?.includes("FINE") &&
+                    !selected.fine_paid &&
+                    selected.case_status === "APPROVED" &&
+                    selected.implemented_penalties?.includes("FINE") ? (
                       <button
                         type="button"
                         disabled={busyId === selected.id}
+                        onClick={() => recordFinePayment(selected)}
+                        className="btn-secondary btn-sm"
+                      >
+                        {busyId === selected.id ? "…" : "Record Fine Paid"}
+                      </button>
+                    ) : null}
+                    {selected.result_status === "HELD" && canRelease ? (
+                      <button
+                        type="button"
+                        disabled={busyId === selected.id || !selected.can_release}
                         onClick={() => setConfirmHold(selected)}
                         className="btn-danger btn-sm"
                       >
@@ -533,6 +753,28 @@ export default function ResultControlsPage() {
                           ? "…"
                           : "Release Result Hold"}
                       </button>
+                    ) : null}
+                    {selected.result_status === "HELD" && !selected.can_release ? (
+                      <div className="w-full text-xs text-amber-800">
+                        <p>
+                          {selected.case_status !== "APPROVED"
+                            ? "Release is available after the Exam Department completes implementation."
+                            : selected.recommended_penalties?.includes("FINE") &&
+                                !selected.fine_paid
+                              ? "Record the fine payment before releasing this result hold."
+                              : "Complete the implementation record before releasing this result hold."}
+                        </p>
+                        {selected.case_status === "APPROVED" &&
+                        selected.recommended_penalties?.length &&
+                        !selected.implemented_penalties?.length ? (
+                          <Link
+                            to={`/app/cases/${selected.case_id}`}
+                            className="mt-1 inline-flex font-semibold text-au-blue underline"
+                          >
+                            Open case to record implementation
+                          </Link>
+                        ) : null}
+                      </div>
                     ) : null}
                     {selected.result_status === "RELEASED" ? (
                       <span className="self-center text-xs font-medium text-slate-500">

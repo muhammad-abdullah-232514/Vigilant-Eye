@@ -82,7 +82,7 @@ def client_db():
     )
 
     student = Student(
-        student_id="C15-ROLL-99",
+        student_id="615099",
         name="Searchable Student",
         department="CS",
         program="BSCS",
@@ -186,11 +186,11 @@ def _h(tok: str) -> dict:
 def test_student_search_query_param(client_db):
     c = client_db["client"]
     h = _h(client_db["token"](client_db["inv"]))
-    r = c.get("/students?q=C15-ROLL", headers=h)
+    r = c.get("/students?q=615099", headers=h)
     assert r.status_code == 200
     data = r.json()
     assert len(data) == 1
-    assert data[0]["student_id"] == "C15-ROLL-99"
+    assert data[0]["student_id"] == "615099"
 
     empty_q = c.get("/students?q=", headers=h)
     assert empty_q.status_code == 200
@@ -212,7 +212,7 @@ def test_invigilator_cannot_use_master_data_student_create(client_db):
         "/students",
         headers=h,
         json={
-            "student_id": "C15-BLOCKED",
+            "student_id": "615000",
             "name": "Should Fail",
             "department": "EE",
             "program": "BSEE",
@@ -251,7 +251,7 @@ def test_filing_time_manual_student_and_exam(client_db):
         headers=h,
         json={
             "manual_student": {
-                "student_id": "C15-NEW-01",
+                "student_id": "615001",
                 "name": "Manual Entry Student",
                 "department": "EE",
                 "program": "BSEE",
@@ -274,7 +274,7 @@ def test_filing_time_manual_student_and_exam(client_db):
     )
     assert r.status_code == 201, r.text
     body = r.json()
-    assert body["student_roll"] == "C15-NEW-01"
+    assert body["student_roll"] == "615001"
     assert body["exam_course_code"] == "C15NEW"
 
     after_students = client_db["db"].scalar(select(func.count()).select_from(Student))
@@ -292,7 +292,7 @@ def test_manual_student_reuses_existing_roll(client_db):
         headers=h,
         json={
             "manual_student": {
-                "student_id": "C15-ROLL-99",
+                "student_id": "615099",
                 "name": "Different Name Ignored",
                 "department": "CS",
                 "program": "BSCS",

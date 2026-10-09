@@ -101,7 +101,33 @@ def _seed_demo() -> None:
     seed_users(quiet=True)
     print("Demo seed: rooms / cameras / exam…")
     seed_cameras(quiet=True)
-    print("Demo seed: READY (idempotent; see README for demo accounts)")
+    print("Demo seed: READY (idempotent; enabled by explicit opt-in)")
+
+
+def _seed_authorized_users() -> None:
+    from database import SessionLocal
+    from seed_authorized_users import (
+        disable_legacy_demo_accounts,
+        load_authorized_users,
+        seed_authorized_users,
+    )
+
+    db = SessionLocal()
+    try:
+        roster = load_authorized_users()
+        disabled_demos = disable_legacy_demo_accounts(db)
+        created, skipped = seed_authorized_users(db, roster)
+        db.commit()
+        print(
+            "Authorized-user seed: READY "
+            f"(created={created}, already_present={skipped}, "
+            f"disabled_legacy_demos={disabled_demos})"
+        )
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 def main() -> None:
@@ -111,6 +137,7 @@ def main() -> None:
     validate_production_settings()
     _wait_for_database()
     _ensure_schema()
+    _seed_authorized_users()
     _seed_demo()
     print("Bootstrap: COMPLETE")
 

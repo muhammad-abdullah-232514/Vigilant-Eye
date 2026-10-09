@@ -13,6 +13,9 @@ class Detection(Base):
     camera_id: Mapped[int | None] = mapped_column(
         ForeignKey("cameras.id"), nullable=True, index=True
     )
+    exam_id: Mapped[int | None] = mapped_column(
+        ForeignKey("exams.id"), nullable=True, index=True
+    )
     student_id: Mapped[int | None] = mapped_column(
         ForeignKey("students.id"), nullable=True, index=True
     )

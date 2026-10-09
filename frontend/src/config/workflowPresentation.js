@@ -15,12 +15,11 @@ import {
 export const WORKFLOW_RULES = Object.freeze({
   HOD: {
     FORWARD: { from: ["PENDING", "UNDER_REVIEW"], to: "DEC_REVIEW" },
-    RETURN: { from: ["DEC_REVIEW", "UNDER_REVIEW"], to: "PENDING" },
   },
   DEC: {
     FORWARD: { from: ["DEC_REVIEW"], to: "EXAM_DEPARTMENT_REVIEW" },
     RETURN: {
-      from: ["DEC_REVIEW", "EXAM_DEPARTMENT_REVIEW"],
+      from: ["DEC_REVIEW"],
       to: "PENDING",
     },
   },
@@ -30,12 +29,19 @@ export const WORKFLOW_RULES = Object.freeze({
       to: "UFM_COMMITTEE_REVIEW",
     },
     RETURN: {
-      from: ["EXAM_DEPARTMENT_REVIEW", "UFM_COMMITTEE_REVIEW"],
-      to: "PENDING",
+      from: ["EXAM_DEPARTMENT_REVIEW"],
+      to: "DEC_REVIEW",
+    },
+    IMPLEMENT: {
+      from: ["EXAM_DEPARTMENT_IMPLEMENTATION", "APPROVED"],
+      to: "APPROVED",
     },
   },
   UFM_COMMITTEE: {
-    APPROVE: { from: ["UFM_COMMITTEE_REVIEW"], to: "APPROVED" },
+    APPROVE: {
+      from: ["UFM_COMMITTEE_REVIEW"],
+      to: "EXAM_DEPARTMENT_IMPLEMENTATION",
+    },
     REJECT: { from: ["UFM_COMMITTEE_REVIEW"], to: "REJECTED" },
   },
 });
@@ -47,24 +53,28 @@ export const STATUS_NEXT_ROLE = Object.freeze({
   DEC_REVIEW: "DEC",
   EXAM_DEPARTMENT_REVIEW: "EXAM_DEPARTMENT",
   UFM_COMMITTEE_REVIEW: "UFM_COMMITTEE",
+  EXAM_DEPARTMENT_IMPLEMENTATION: "EXAM_DEPARTMENT",
 });
 
 const ACTION_MEANING = Object.freeze({
   FORWARD:
     "Send the reviewed case to the next institutional stage. This is not a final decision.",
   RETURN:
-    "Send the case back to Pending so HOD can restart departmental review. This does not keep the case with the previous reviewer — status becomes Pending. Result control is unchanged.",
+    "Return the case to the preceding review stage for further review. Result control is unchanged.",
   APPROVE:
-    "Record the final UFM Committee decision that the case is sustained. The case workflow ends. A result hold is applied automatically.",
+    "Record the Committee decision and recommended penalties. The case returns to Exam Department for implementation, and a result hold is applied.",
   REJECT:
     "Record the final UFM Committee decision that the case is not sustained. The case workflow ends. No result hold is created by this action.",
+  IMPLEMENT:
+    "Confirm application of the Committee decision and record any fine amount and payment status. This completes the case implementation.",
 });
 
 const ACTION_BUTTON_HINT = Object.freeze({
   FORWARD: "Next stage",
-  RETURN: "Back to Pending (HOD)",
-  APPROVE: "Final decision · places hold",
+  RETURN: "Back to HOD",
+  APPROVE: "Decision + penalties · send to Exam Dept.",
   REJECT: "Final decision · no hold",
+  IMPLEMENT: "Apply decision · complete case",
 });
 
 export function availableReviewActions(role, status) {
@@ -79,7 +89,10 @@ export function actionMeaning(action) {
   return ACTION_MEANING[action] || "Records a review action on this UFM case.";
 }
 
-export function actionButtonHint(action) {
+export function actionButtonHint(action, role) {
+  if (action === "RETURN" && role === "EXAM_DEPARTMENT") {
+    return "Back to DEC";
+  }
   return ACTION_BUTTON_HINT[action] || "";
 }
 
@@ -98,7 +111,10 @@ export function resolveReviewOutcome(role, currentStatus, action) {
   let resultImpact = "No change to result control.";
   if (action === "APPROVE") {
     resultImpact =
-      "Creates an On Hold result control (transcript Blocked) if none exists for this case.";
+      "Creates an On Hold result control and routes the Committee recommendations to Exam Department.";
+  } else if (action === "IMPLEMENT") {
+    resultImpact =
+      "Records applied penalties and completes the case; result hold remains until separately released.";
   } else if (action === "REJECT") {
     resultImpact = "Does not create or release a result hold.";
   } else if (action === "RETURN" || action === "FORWARD") {
@@ -129,7 +145,7 @@ export function resolveReviewOutcome(role, currentStatus, action) {
     resultImpact,
     afterAction,
     meaning: actionMeaning(action),
-    buttonHint: actionButtonHint(action),
+    buttonHint: actionButtonHint(action, role),
     studentNotified: true, // backend notifies linked student on every review status change
     reporterNotified: true,
   };
@@ -174,7 +190,7 @@ export function resultImpactForCase(caseData) {
     if (caseData?.status === "REJECTED") {
       return "Rejected — no result hold is created by reject.";
     }
-    return "No result hold linked to this case yet (hold is created on Approve).";
+    return "No result hold linked to this case yet (hold is created on Committee approval).";
   }
   return `Result ${formatResultStatusLabel(rc.result_status)} · Transcript ${formatStatusLabel(
     rc.transcript_status

@@ -81,6 +81,8 @@ services:
     environment:
       # Browser on the host talks to the published API port — not the Docker service name.
       VITE_API_URL: ${VITE_API_URL:-http://127.0.0.1:8000}
+      # Google client IDs are public and allow the login button to render without an API round trip.
+      VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     ports:
       - "5173:5173"
     volumes:

@@ -1,5 +1,6 @@
+import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, status
@@ -10,7 +11,7 @@ from fastapi.exception_handlers import (
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import desc, func, or_, select, text
 from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -34,6 +35,7 @@ from case_access import (
     EVIDENCE_UPLOAD_ROLES,
     EXAM_CATALOG_ROLES,
     REPORTS_ROLES,
+    RESULT_CONTROL_ROLES,
     STAFF_USER_VIEW_ROLES,
     STUDENT_DIRECTORY_ROLES,
     active_queue_statuses_for_role,
@@ -87,17 +89,27 @@ from schemas.clarification import ClarificationCreate, ClarificationOut
 from schemas.detection import DetectionOut, DraftCaseFromDetection
 from schemas.exam import ExamCreate, ExamOut
 from schemas.exam_ops import (
+    DutyRosterRow,
+    DutyStatusUpdate,
     ExamDetailOut,
     ExamEnrollmentCreate,
     ExamEnrollmentOut,
     ExamInvigilatorCreate,
     ExamInvigilatorOut,
+    ExamStatusUpdate,
+    ExamToolkitStats,
     ExamUpdate,
+    MyDutyOut,
 )
+import exam_toolkit
 from schemas.exam_room import ExamRoomCreate, ExamRoomOut
-from schemas.evidence import EvidenceOut
+from schemas.evidence import EvidenceLinkRequest, EvidenceOut
 from schemas.notification import NotificationOut
-from schemas.result_control import ResultControlCreate, ResultControlOut
+from schemas.result_control import (
+    ResultControlCreate,
+    ResultControlFinePayment,
+    ResultControlOut,
+)
 from result_control_enrich import enrich_result_control
 from schemas.student import StudentCreate, StudentLinkUser, StudentOut
 from schemas.ufm_case import (
@@ -200,6 +212,22 @@ app.add_middleware(SecurityHeadersMiddleware)
 EVIDENCE_UPLOAD_DIR = Path(__file__).resolve().parent / "uploads" / "evidence"
 EVIDENCE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+# Evidence upload constraints (server-side boundary — the frontend is not trusted).
+# Both CLIP (auto evidence from detections) and VIDEO_CLIP (manual Evidence page
+# upload form) are in active use — keep both so neither path breaks.
+ALLOWED_EVIDENCE_TYPES = frozenset({"SNAPSHOT", "CLIP", "VIDEO_CLIP", "DOCUMENT"})
+# Allowlist of safe evidence file extensions. Executables / scripts / markup
+# (.exe, .sh, .bat, .js, .html, .svg, …) are rejected so a stored file cannot be
+# served back as active content or run on a host.
+ALLOWED_EVIDENCE_EXTENSIONS = frozenset(
+    {
+        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp",
+        ".mp4", ".mov", ".avi", ".webm", ".mkv",
+        ".pdf", ".txt", ".csv", ".doc", ".docx",
+    }
+)
+MAX_EVIDENCE_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+
 
 def write_audit_log(
     db: Session,
@@ -228,6 +256,7 @@ STATUS_NEXT_ROLE = {
     "UNDER_REVIEW": "HOD",
     "DEC_REVIEW": "DEC",
     "EXAM_DEPARTMENT_REVIEW": "EXAM_DEPARTMENT",
+    "EXAM_DEPARTMENT_IMPLEMENTATION": "EXAM_DEPARTMENT",
     "UFM_COMMITTEE_REVIEW": "UFM_COMMITTEE",
 }
 
@@ -237,6 +266,7 @@ _STATUS_NOTIFY_LABEL = {
     "UNDER_REVIEW": "Under Review",
     "DEC_REVIEW": "DEC Review",
     "EXAM_DEPARTMENT_REVIEW": "Exam Department Review",
+    "EXAM_DEPARTMENT_IMPLEMENTATION": "Exam Department Implementation",
     "UFM_COMMITTEE_REVIEW": "UFM Committee Review",
     "APPROVED": "Approved",
     "REJECTED": "Rejected",
@@ -611,7 +641,7 @@ def link_student_user(
 def create_exam_room(
     room_in: ExamRoomCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("EXAM_DEPARTMENT", "HOD")),
+    current_user: User = Depends(require_roles("EXAM_DEPARTMENT")),
 ):
     existing = db.scalar(
         select(ExamRoom).where(ExamRoom.room_number == room_in.room_number)
@@ -704,9 +734,13 @@ def create_camera(
 
 def _source_kind(url: str) -> str:
     lower = (url or "").lower()
-    if lower.startswith("rtsp://"):
+    if lower.startswith(("rtsp://", "rtsps://")):
         return "rtsp"
-    if lower.startswith("webcam") or lower.isdigit() or lower in {"webcam", "cam", "local"}:
+    if (
+        lower.startswith(("webcam:", "cam:"))
+        or lower.isdigit()
+        or lower in {"webcam", "cam", "local"}
+    ):
         return "webcam"
     if lower.startswith("http"):
         return "http"
@@ -751,7 +785,7 @@ def list_cameras(
 def create_exam(
     exam_in: ExamCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("EXAM_DEPARTMENT", "HOD")),
+    current_user: User = Depends(require_roles("EXAM_DEPARTMENT")),
 ):
     room = db.get(ExamRoom, exam_in.room_id)
     if room is None:
@@ -766,6 +800,15 @@ def create_exam(
             detail="end_time must be after start_time",
         )
 
+    exam_toolkit.assert_capacity_ok(exam_in.student_count, room)
+    exam_toolkit.assert_no_room_conflict(
+        db,
+        room_id=exam_in.room_id,
+        exam_date=exam_in.exam_date,
+        start_time=exam_in.start_time,
+        end_time=exam_in.end_time,
+    )
+
     exam = Exam(
         course_code=exam_in.course_code,
         course_name=exam_in.course_name,
@@ -774,6 +817,14 @@ def create_exam(
         start_time=exam_in.start_time,
         end_time=exam_in.end_time,
         room_id=exam_in.room_id,
+        title=exam_in.title,
+        exam_type=exam_in.exam_type,
+        department=exam_in.department,
+        section=exam_in.section,
+        student_count=exam_in.student_count,
+        required_invigilators=exam_in.required_invigilators,
+        instructions=exam_in.instructions,
+        notes=exam_in.notes,
     )
     db.add(exam)
     db.flush()
@@ -849,6 +900,7 @@ def get_exam_detail(
         }
         for c in cameras
     ]
+    room = db.get(ExamRoom, exam.room_id)
     return ExamDetailOut(
         id=exam.id,
         course_code=exam.course_code,
@@ -858,9 +910,22 @@ def get_exam_detail(
         start_time=exam.start_time,
         end_time=exam.end_time,
         room_id=exam.room_id,
+        status=exam.status,
+        title=exam.title,
+        exam_type=exam.exam_type,
+        department=exam.department,
+        section=exam.section,
+        student_count=exam.student_count,
+        required_invigilators=exam.required_invigilators,
+        instructions=exam.instructions,
+        notes=exam.notes,
+        published_at=exam.published_at,
         enrollments=enrollments,
         invigilators=invigilators,
         room_cameras=room_cameras,
+        room_number=room.room_number if room else None,
+        room_building=room.building if room else None,
+        room_capacity=room.capacity if room else None,
     )
 
 
@@ -869,20 +934,48 @@ def update_exam(
     exam_id: int,
     body: ExamUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("EXAM_DEPARTMENT", "HOD")),
+    current_user: User = Depends(require_roles("EXAM_DEPARTMENT")),
 ):
     exam = db.get(Exam, exam_id)
     if exam is None:
         raise HTTPException(status_code=404, detail="Exam not found")
 
     data = body.model_dump(exclude_unset=True)
-    if "room_id" in data:
-        if db.get(ExamRoom, data["room_id"]) is None:
-            raise HTTPException(status_code=400, detail="Exam room not found for room_id")
+    target_room_id = data.get("room_id", exam.room_id)
+    room = db.get(ExamRoom, target_room_id)
+    if room is None:
+        raise HTTPException(status_code=400, detail="Exam room not found for room_id")
     start = data.get("start_time", exam.start_time)
     end = data.get("end_time", exam.end_time)
     if end <= start:
         raise HTTPException(status_code=400, detail="end_time must be after start_time")
+
+    target_date = data.get("exam_date", exam.exam_date)
+    target_count = data.get("student_count", exam.student_count)
+    exam_toolkit.assert_capacity_ok(target_count, room)
+    # Re-check room conflict whenever room / date / time move (excluding this exam).
+    if {"room_id", "exam_date", "start_time", "end_time"} & data.keys():
+        exam_toolkit.assert_no_room_conflict(
+            db,
+            room_id=target_room_id,
+            exam_date=target_date,
+            start_time=start,
+            end_time=end,
+            exclude_exam_id=exam.id,
+        )
+        # Moving the exam in time can double-book its already-assigned invigilators.
+        if {"exam_date", "start_time", "end_time"} & data.keys():
+            for assignment in db.scalars(
+                select(ExamInvigilator).where(ExamInvigilator.exam_id == exam.id)
+            ).all():
+                exam_toolkit.assert_no_invigilator_conflict(
+                    db,
+                    user_id=assignment.user_id,
+                    exam_date=target_date,
+                    start_time=start,
+                    end_time=end,
+                    exclude_exam_id=exam.id,
+                )
 
     for key, value in data.items():
         setattr(exam, key, value)
@@ -908,7 +1001,7 @@ def enroll_student(
     exam_id: int,
     body: ExamEnrollmentCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("EXAM_DEPARTMENT", "HOD")),
+    current_user: User = Depends(require_roles("EXAM_DEPARTMENT")),
 ):
     if db.get(Exam, exam_id) is None:
         raise HTTPException(status_code=404, detail="Exam not found")
@@ -959,7 +1052,7 @@ def unenroll_student(
     exam_id: int,
     enrollment_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("EXAM_DEPARTMENT", "HOD")),
+    current_user: User = Depends(require_roles("EXAM_DEPARTMENT")),
 ):
     row = db.get(ExamEnrollment, enrollment_id)
     if row is None or row.exam_id != exam_id:
@@ -986,9 +1079,10 @@ def assign_invigilator(
     exam_id: int,
     body: ExamInvigilatorCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("EXAM_DEPARTMENT", "HOD")),
+    current_user: User = Depends(require_roles("EXAM_DEPARTMENT")),
 ):
-    if db.get(Exam, exam_id) is None:
+    exam = db.get(Exam, exam_id)
+    if exam is None:
         raise HTTPException(status_code=404, detail="Exam not found")
     user = db.get(User, body.user_id)
     if user is None or user.role != "INVIGILATOR":
@@ -1006,7 +1100,20 @@ def assign_invigilator(
     )
     if existing is not None:
         raise HTTPException(status_code=400, detail="Invigilator already assigned")
-    row = ExamInvigilator(exam_id=exam_id, user_id=body.user_id)
+
+    # Prevent double-booking across time-overlapping exams.
+    exam_toolkit.assert_no_invigilator_conflict(
+        db,
+        user_id=body.user_id,
+        exam_date=exam.exam_date,
+        start_time=exam.start_time,
+        end_time=exam.end_time,
+        exclude_exam_id=exam_id,
+    )
+
+    row = ExamInvigilator(
+        exam_id=exam_id, user_id=body.user_id, is_primary=body.is_primary
+    )
     db.add(row)
     db.flush()
     write_audit_log(
@@ -1017,6 +1124,20 @@ def assign_invigilator(
         entity_id=row.id,
         description=f"Assigned invigilator user_id={body.user_id} to exam_id={exam_id}",
     )
+    # Notify the invigilator (portal + email where eligible) only once published,
+    # otherwise the roster is still being built.
+    if exam.status == "PUBLISHED":
+        create_notification(
+            db,
+            user_id=body.user_id,
+            case_id=None,
+            type="DUTY_ASSIGNED",
+            title="New invigilation duty assigned",
+            message=(
+                f"You have been assigned to {exam.course_code} — {exam.course_name} "
+                f"on {exam.exam_date} ({exam.start_time:%H:%M}–{exam.end_time:%H:%M})."
+            ),
+        )
     db.commit()
     db.refresh(row)
     return ExamInvigilatorOut(**invigilator_out(db, row))
@@ -1042,7 +1163,7 @@ def unassign_invigilator(
     exam_id: int,
     assignment_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("EXAM_DEPARTMENT", "HOD")),
+    current_user: User = Depends(require_roles("EXAM_DEPARTMENT")),
 ):
     row = db.get(ExamInvigilator, assignment_id)
     if row is None or row.exam_id != exam_id:
@@ -1074,7 +1195,7 @@ def _link_library_evidence_to_case(
     evidence_ids: list[int],
     current_user: User,
 ) -> None:
-    """Attach existing orphan evidence rows to a newly created case."""
+    """Attach existing unlinked evidence rows to a case."""
     for eid in evidence_ids:
         row = db.get(Evidence, eid)
         if row is None:
@@ -1103,6 +1224,38 @@ def _link_library_evidence_to_case(
                 entity_id=row.id,
                 description=f"Linked evidence {row.id} to case_id={case_id}",
             )
+
+
+@app.post(
+    "/ufm-cases/{case_id}/evidence",
+    response_model=list[EvidenceOut],
+)
+def link_evidence_to_existing_case(
+    case_id: int,
+    body: EvidenceLinkRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*sorted(EVIDENCE_UPLOAD_ROLES))),
+):
+    """Attach existing unlinked Evidence Library records to an accessible case."""
+    case = db.get(UfmCase, case_id)
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="UFM case not found",
+        )
+    assert_can_access_case(db, current_user, case)
+    _link_library_evidence_to_case(
+        db,
+        case_id=case_id,
+        evidence_ids=body.evidence_ids,
+        current_user=current_user,
+    )
+    db.commit()
+    return db.scalars(
+        select(Evidence)
+        .where(Evidence.id.in_(body.evidence_ids))
+        .order_by(Evidence.id)
+    ).all()
 
 
 def _resolve_filing_student(
@@ -1430,7 +1583,249 @@ def list_ufm_cases(
             query = query.where(UfmCase.status == status_filter)
 
     cases = db.scalars(query).all()
-    return [enrich_case(db, c) for c in cases]
+    include_reporter_email = current_user.role != "STUDENT"
+    return [
+        enrich_case(db, case, include_reporter_email=include_reporter_email)
+        for case in cases
+    ]
+
+
+@app.get("/dashboard/hod-analytics")
+def get_hod_dashboard_analytics(
+    year: int = Query(ge=2000, le=2100),
+    month: int = Query(ge=1, le=12),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("HOD", "EXAM_DEPARTMENT")),
+):
+    """Return monthly case events for HOD and Exam Department dashboards."""
+    start = datetime(year, month, 1)
+    end_year = year + (1 if month == 12 else 0)
+    end_month = 1 if month == 12 else month + 1
+    end = datetime(end_year, end_month, 1)
+
+    def daily_counts(statement, timestamp_column):
+        rows = db.execute(
+            statement
+            .where(timestamp_column >= start, timestamp_column < end)
+            .group_by(func.date(timestamp_column))
+            .order_by(func.date(timestamp_column))
+        ).all()
+        return [{"date": str(day), "count": count} for day, count in rows]
+
+    received = daily_counts(
+        select(func.date(UfmCase.created_at), func.count(UfmCase.id)),
+        UfmCase.created_at,
+    )
+    forwarded = daily_counts(
+        select(func.date(CaseReview.created_at), func.count(CaseReview.id))
+        .join(UfmCase, UfmCase.id == CaseReview.case_id)
+        .where(
+            CaseReview.reviewer_role == "HOD",
+            CaseReview.action == "FORWARD",
+        ),
+        CaseReview.created_at,
+    )
+    resolved = daily_counts(
+        select(func.date(CaseReview.created_at), func.count(CaseReview.id))
+        .join(UfmCase, UfmCase.id == CaseReview.case_id)
+        .where(
+            or_(
+                (CaseReview.reviewer_role == "EXAM_DEPARTMENT")
+                & (CaseReview.action == "IMPLEMENT"),
+                (CaseReview.reviewer_role == "UFM_COMMITTEE")
+                & (CaseReview.action == "REJECT"),
+            )
+        ),
+        CaseReview.created_at,
+    )
+    return {
+        "year": year,
+        "month": month,
+        "received": received,
+        "forwarded": forwarded,
+        "resolved": resolved,
+    }
+
+
+@app.get("/dashboard/dec-analytics")
+def get_dec_dashboard_analytics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("DEC")),
+):
+    """Return DEC workflow event totals for the current month and week."""
+    now = datetime.utcnow()
+    month_start = datetime(now.year, now.month, 1)
+    week_start = (now - timedelta(days=now.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+
+    def review_count(*, reviewer_role: str, action: str, since: datetime) -> int:
+        return db.scalar(
+            select(func.count(CaseReview.id)).where(
+                CaseReview.reviewer_role == reviewer_role,
+                CaseReview.action == action,
+                CaseReview.created_at >= since,
+                CaseReview.created_at <= now,
+            )
+        ) or 0
+
+    return {
+        "received_this_month": review_count(
+            reviewer_role="HOD",
+            action="FORWARD",
+            since=month_start,
+        ),
+        "forwarded_this_week": review_count(
+            reviewer_role="DEC",
+            action="FORWARD",
+            since=week_start,
+        ),
+        "returned_this_month": review_count(
+            reviewer_role="DEC",
+            action="RETURN",
+            since=month_start,
+        ),
+    }
+
+
+@app.get("/dashboard/ufm-committee-analytics")
+def get_ufm_committee_dashboard_analytics(
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    month: int | None = Query(default=None, ge=1, le=12),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("UFM_COMMITTEE")),
+):
+    """Return UFM queue totals and current-month workflow analytics."""
+    now = datetime.utcnow()
+    analytics_year = year or now.year
+    analytics_month = month or now.month
+    month_start = datetime(analytics_year, analytics_month, 1)
+    end_year = analytics_year + (1 if analytics_month == 12 else 0)
+    end_month = 1 if analytics_month == 12 else analytics_month + 1
+    month_end = datetime(end_year, end_month, 1)
+    terminal_statuses = ("APPROVED", "REJECTED")
+
+    def case_count(*, statuses: tuple[str, ...], since: datetime | None = None) -> int:
+        statement = select(func.count(UfmCase.id)).where(
+            UfmCase.status.in_(statuses)
+        )
+        if since is not None:
+            statement = statement.where(
+                UfmCase.updated_at >= since,
+                UfmCase.updated_at < month_end,
+            )
+        return db.scalar(statement) or 0
+
+    def daily_review_events(*, reviewer_role: str, actions: tuple[str, ...]) -> list[dict]:
+        rows = db.execute(
+            select(
+                func.date(CaseReview.created_at),
+                func.count(CaseReview.id),
+            )
+            .where(
+                CaseReview.reviewer_role == reviewer_role,
+                CaseReview.action.in_(actions),
+                CaseReview.created_at >= month_start,
+                CaseReview.created_at < month_end,
+            )
+            .group_by(func.date(CaseReview.created_at))
+            .order_by(func.date(CaseReview.created_at))
+        ).all()
+        return [{"date": str(day), "count": count} for day, count in rows]
+
+    def daily_closed_events() -> list[dict]:
+        rows = db.execute(
+            select(
+                func.date(CaseReview.created_at),
+                func.count(CaseReview.id),
+            )
+            .where(
+                or_(
+                    (CaseReview.reviewer_role == "EXAM_DEPARTMENT")
+                    & (CaseReview.action == "IMPLEMENT"),
+                    (CaseReview.reviewer_role == "UFM_COMMITTEE")
+                    & (CaseReview.action == "REJECT"),
+                ),
+                CaseReview.created_at >= month_start,
+                CaseReview.created_at < month_end,
+            )
+            .group_by(func.date(CaseReview.created_at))
+            .order_by(func.date(CaseReview.created_at))
+        ).all()
+        return [{"date": str(day), "count": count} for day, count in rows]
+
+    committee_decisions = (
+        select(CaseReview.id, CaseReview.action, UfmCase.violation_type)
+        .join(UfmCase, UfmCase.id == CaseReview.case_id)
+        .where(
+            CaseReview.reviewer_role == "UFM_COMMITTEE",
+            CaseReview.action.in_(("APPROVE", "REJECT")),
+            CaseReview.created_at >= month_start,
+            CaseReview.created_at < month_end,
+        )
+        .subquery()
+    )
+    decisions_this_month = db.scalar(
+        select(func.count(committee_decisions.c.id))
+    ) or 0
+    violation_rows = db.execute(
+        select(
+            committee_decisions.c.violation_type,
+            func.count(committee_decisions.c.id),
+        )
+        .group_by(committee_decisions.c.violation_type)
+        .order_by(func.count(committee_decisions.c.id).desc())
+    ).all()
+
+    outcomes = {
+        "penalty_implemented": db.scalar(
+            select(func.count(CaseReview.id)).where(
+                CaseReview.reviewer_role == "EXAM_DEPARTMENT",
+                CaseReview.action == "IMPLEMENT",
+                CaseReview.created_at >= month_start,
+                CaseReview.created_at < month_end,
+            )
+        )
+        or 0,
+        "case_dismissed": db.scalar(
+            select(func.count(CaseReview.id)).where(
+                CaseReview.reviewer_role == "UFM_COMMITTEE",
+                CaseReview.action == "REJECT",
+                CaseReview.created_at >= month_start,
+                CaseReview.created_at < month_end,
+            )
+        )
+        or 0,
+    }
+
+    return {
+        "cases_for_final_review": case_count(statuses=("UFM_COMMITTEE_REVIEW",)),
+        "awaiting_implementation": case_count(
+            statuses=("EXAM_DEPARTMENT_IMPLEMENTATION",)
+        ),
+        "decisions_this_month": decisions_this_month,
+        "closed_cases_this_month": case_count(
+            statuses=terminal_statuses,
+            since=month_start,
+        ),
+        "total_closed_cases": case_count(statuses=terminal_statuses),
+        "year": analytics_year,
+        "month": analytics_month,
+        "received": daily_review_events(
+            reviewer_role="EXAM_DEPARTMENT",
+            actions=("FORWARD",),
+        ),
+        "decided": daily_review_events(
+            reviewer_role="UFM_COMMITTEE",
+            actions=("APPROVE", "REJECT"),
+        ),
+        "closed": daily_closed_events(),
+        "violation_distribution": [
+            {"label": violation or "Unspecified", "count": count}
+            for violation, count in violation_rows
+        ],
+        "outcomes": outcomes,
+    }
 
 
 @app.get("/ufm-cases/export.csv")
@@ -1527,7 +1922,11 @@ def get_ufm_case(
         )
         db.commit()
         db.refresh(case)
-    return enrich_case(db, case)
+    return enrich_case(
+        db,
+        case,
+        include_reporter_email=current_user.role != "STUDENT",
+    )
 
 
 @app.get("/me/student-profile", response_model=StudentOut | None)
@@ -1562,11 +1961,94 @@ def create_case_review(
             detail="UFM case not found",
         )
 
+    action = review_in.action.strip().upper()
     new_status = next_status(
         role=current_user.role,
-        action=review_in.action,
+        action=action,
         current_status=case.status,
     )
+
+    implementation_control = None
+    committee_recommendations: list[str] = []
+    if action == "APPROVE":
+        if not review_in.recommended_penalties:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Select at least one recommended penalty before approving.",
+            )
+        if len(set(review_in.recommended_penalties)) != len(
+            review_in.recommended_penalties
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A recommended penalty may only be selected once.",
+            )
+    elif review_in.recommended_penalties:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Penalty recommendations may only be submitted with Committee approval.",
+        )
+
+    if action == "IMPLEMENT":
+        committee_review = db.scalar(
+            select(CaseReview)
+            .where(
+                CaseReview.case_id == case.id,
+                CaseReview.reviewer_role == "UFM_COMMITTEE",
+                CaseReview.action == "APPROVE",
+            )
+            .order_by(CaseReview.id.desc())
+        )
+        if committee_review is None or not committee_review.recommended_penalties:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Committee recommendations are missing for this case.",
+            )
+        committee_recommendations = json.loads(
+            committee_review.recommended_penalties
+        )
+        if set(review_in.implemented_penalties or []) != set(
+            committee_recommendations
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Confirm implementation of all Committee-recommended penalties.",
+            )
+        has_fine = "FINE" in committee_recommendations
+        if has_fine and review_in.fine_amount is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Enter the fine amount before recording implementation.",
+            )
+        if not has_fine and (
+            review_in.fine_amount is not None or review_in.fine_paid
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Fine amount and payment status are only valid when a fine was recommended.",
+            )
+        implementation_control = db.scalar(
+            select(ResultControl).where(ResultControl.case_id == case.id)
+        )
+        if implementation_control is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The result hold for this Committee-approved case is missing.",
+            )
+        if implementation_control.implemented_penalties:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The Exam Department implementation is already recorded.",
+            )
+    elif (
+        review_in.implemented_penalties
+        or review_in.fine_amount is not None
+        or review_in.fine_paid
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Implementation details may only be submitted by the Exam Department.",
+        )
 
     signer = _require_signoff(
         signer_name=review_in.signer_name,
@@ -1578,15 +2060,26 @@ def create_case_review(
         case_id=case.id,
         reviewer_id=current_user.id,
         reviewer_role=current_user.role,
-        action=review_in.action.strip().upper(),
+        action=action,
         remarks=review_in.remarks,
+        recommended_penalties=(
+            json.dumps(review_in.recommended_penalties)
+            if action == "APPROVE"
+            else None
+        ),
         signer_name=signer,
         signed_at=signed_at,
         signature_ack=True,
     )
-    previous_status = case.status
     case.status = new_status
     case.updated_at = datetime.utcnow()
+
+    if action == "IMPLEMENT":
+        implementation_control.implemented_penalties = json.dumps(
+            review_in.implemented_penalties
+        )
+        implementation_control.fine_amount = review_in.fine_amount
+        implementation_control.fine_paid = review_in.fine_paid
 
     db.add(review)
     db.flush()
@@ -1603,7 +2096,6 @@ def create_case_review(
     )
 
     status_label = _status_notify_label(new_status)
-    previous_label = _status_notify_label(previous_status)
 
     # Notify reporter about every status change
     create_notification(
@@ -1612,10 +2104,7 @@ def create_case_review(
         case_id=case.id,
         type="CASE_STATUS",
         title="Case status updated",
-        message=(
-            f"{case.case_number} is now {status_label} "
-            f"(was {previous_label})."
-        ),
+        message=f"{case.case_number} status: {status_label}.",
     )
 
     # Notify linked student
@@ -1627,10 +2116,7 @@ def create_case_review(
             case_id=case.id,
             type="CASE_STATUS",
             title="Your UFM case status changed",
-            message=(
-                f"{case.case_number} is now {status_label} "
-                f"(was {previous_label})."
-            ),
+            message=f"{case.case_number} status: {status_label}.",
         )
 
     # Notify next role in the chain (if any)
@@ -1648,8 +2134,9 @@ def create_case_review(
             ),
         )
 
-    # On APPROVED: auto-hold result/transcript for the student
-    if new_status == "APPROVED":
+    # Committee approval starts the Exam Department implementation stage and
+    # places a hold until the decision has been applied.
+    if review.action == "APPROVE":
         existing_hold = db.scalar(
             select(ResultControl).where(ResultControl.case_id == case.id)
         )
@@ -1729,6 +2216,28 @@ async def upload_evidence(
     current_user: User = Depends(require_roles(*sorted(EVIDENCE_UPLOAD_ROLES))),
 ):
     """Upload evidence attached to a UFM case. Invigilator-only (C28)."""
+    evidence_type = (evidence_type or "").strip().upper()
+    if evidence_type not in ALLOWED_EVIDENCE_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Invalid evidence_type. Allowed: "
+                f"{', '.join(sorted(ALLOWED_EVIDENCE_TYPES))}"
+            ),
+        )
+    if seat_location is not None:
+        seat_location = seat_location.strip() or None
+        if seat_location and len(seat_location) > 50:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="seat_location must be at most 50 characters",
+            )
+    if confidence is not None and not (0.0 <= confidence <= 1.0):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="confidence must be between 0 and 1",
+        )
+
     case = db.get(UfmCase, case_id)
     if case is None:
         raise HTTPException(
@@ -1744,6 +2253,15 @@ async def upload_evidence(
         )
 
     original_name = Path(file.filename or "evidence.bin").name
+    extension = Path(original_name).suffix.lower()
+    if extension not in ALLOWED_EVIDENCE_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Unsupported file type. Allowed extensions: "
+                f"{', '.join(sorted(ALLOWED_EVIDENCE_EXTENSIONS))}"
+            ),
+        )
     stored_name = f"{uuid.uuid4().hex}_{original_name}"
     destination = EVIDENCE_UPLOAD_DIR / stored_name
 
@@ -1752,6 +2270,14 @@ async def upload_evidence(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Uploaded file is empty",
+        )
+    if len(content) > MAX_EVIDENCE_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(
+                "File too large. Maximum size is "
+                f"{MAX_EVIDENCE_UPLOAD_BYTES // (1024 * 1024)} MB"
+            ),
         )
     destination.write_bytes(content)
 
@@ -1811,7 +2337,9 @@ def list_evidence(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    query = select(Evidence).order_by(Evidence.id)
+    # Newest evidence belongs at the top; id is a deterministic tie-breaker
+    # for records created in the same timestamp precision.
+    query = select(Evidence).order_by(desc(Evidence.created_at), desc(Evidence.id))
 
     if current_user.role == "STUDENT":
         # Students only see evidence for their own cases; no detection-inbox browse.
@@ -2360,7 +2888,7 @@ def mark_all_notifications_read(
 def create_result_control(
     body: ResultControlCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("EXAM_DEPARTMENT", "UFM_COMMITTEE")),
+    current_user: User = Depends(require_roles(*sorted(RESULT_CONTROL_ROLES))),
 ):
     if db.get(Student, body.student_id) is None:
         raise HTTPException(
@@ -2408,7 +2936,7 @@ def create_result_control(
 def list_result_controls(
     db: Session = Depends(get_db),
     current_user: User = Depends(
-        require_roles("EXAM_DEPARTMENT", "UFM_COMMITTEE")
+        require_roles(*sorted(RESULT_CONTROL_ROLES))
     ),
 ):
     rows = db.scalars(select(ResultControl).order_by(ResultControl.id.desc())).all()
@@ -2422,7 +2950,7 @@ def list_result_controls(
 def release_result_control(
     control_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("EXAM_DEPARTMENT", "UFM_COMMITTEE")),
+    current_user: User = Depends(require_roles(*sorted(RESULT_CONTROL_ROLES))),
 ):
     control = db.get(ResultControl, control_id)
     if control is None:
@@ -2435,6 +2963,34 @@ def release_result_control(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Result control already released",
         )
+
+    case = db.get(UfmCase, control.case_id)
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="UFM case linked to result control not found",
+        )
+    committee_review = db.scalar(
+        select(CaseReview)
+        .where(
+            CaseReview.case_id == control.case_id,
+            CaseReview.reviewer_role == "UFM_COMMITTEE",
+            CaseReview.action == "APPROVE",
+        )
+        .order_by(CaseReview.id.desc())
+    )
+    if committee_review and committee_review.recommended_penalties:
+        recommendations = json.loads(committee_review.recommended_penalties)
+        if case.status != "APPROVED" or not control.implemented_penalties:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The Exam Department must implement the Committee decision before releasing the result.",
+            )
+        if "FINE" in recommendations and not control.fine_paid:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The result hold cannot be released until the recommended fine is marked paid.",
+            )
 
     control.result_status = "RELEASED"
     control.transcript_status = "ALLOWED"
@@ -2451,11 +3007,87 @@ def release_result_control(
     )
     create_notification(
         db,
-        user_id=db.get(UfmCase, control.case_id).reported_by,
+        user_id=case.reported_by,
         case_id=control.case_id,
         type="RESULT_RELEASED",
         title="Result released",
         message=f"Result/transcript released for case_id={control.case_id}.",
+    )
+    db.commit()
+    db.refresh(control)
+    return enrich_result_control(db, control)
+
+
+@app.patch(
+    "/result-controls/{control_id}/fine-payment",
+    response_model=ResultControlOut,
+)
+def mark_result_control_fine_paid(
+    control_id: int,
+    body: ResultControlFinePayment,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*sorted(RESULT_CONTROL_ROLES))),
+):
+    control = db.get(ResultControl, control_id)
+    if control is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Result control not found",
+        )
+    if control.result_status == "RELEASED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Fine payment cannot be changed after the result has been released.",
+        )
+    if not body.fine_paid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This action only records a received fine payment.",
+        )
+    if control.fine_paid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Fine payment is already recorded.",
+        )
+
+    case = db.get(UfmCase, control.case_id)
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="UFM case linked to result control not found",
+        )
+    committee_review = db.scalar(
+        select(CaseReview)
+        .where(
+            CaseReview.case_id == control.case_id,
+            CaseReview.reviewer_role == "UFM_COMMITTEE",
+            CaseReview.action == "APPROVE",
+        )
+        .order_by(CaseReview.id.desc())
+    )
+    if (
+        committee_review is None
+        or not committee_review.recommended_penalties
+        or "FINE" not in json.loads(committee_review.recommended_penalties)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No fine payment is due for this case.",
+        )
+    if case.status != "APPROVED" or not control.implemented_penalties:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Record the Exam Department implementation before recording fine payment.",
+        )
+
+    control.fine_paid = True
+    write_audit_log(
+        db,
+        user_id=current_user.id,
+        action="UFM_FINE_PAYMENT_RECORDED",
+        entity_type="result_control",
+        entity_id=control.id,
+        description=f"Fine payment recorded for case {case.case_number}",
     )
     db.commit()
     db.refresh(control)

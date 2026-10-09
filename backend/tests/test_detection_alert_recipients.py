@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -86,3 +87,57 @@ def test_confirmed_alert_goes_to_invigilator_not_hod(db):
     assert rows[0].type == "DETECTION_ALERT"
     assert "detection confidence" in (rows[0].message or "").lower()
     assert "model=coco/yolov8n.pt" in (rows[0].message or "")
+
+
+def test_detection_alert_is_committed_before_evidence_work(db, monkeypatch, tmp_path):
+    import numpy as np
+
+    monkeypatch.setenv(
+        "DATABASE_URL", f"sqlite+pysqlite:///{(tmp_path / 'database.db').as_posix()}"
+    )
+    import database
+    import evidence_auto
+    import notify_helpers
+    from live_stream import CameraSession, LiveStreamManager
+
+    session_factory = sessionmaker(bind=db.get_bind())
+    monkeypatch.setattr(database, "SessionLocal", session_factory)
+    monkeypatch.setattr(notify_helpers, "send_email", lambda **kwargs: "disabled")
+    evidence_called = False
+
+    def inspect_committed_alert(_db, **kwargs):
+        nonlocal evidence_called
+        evidence_called = True
+        check_db = session_factory()
+        try:
+            detection = check_db.get(Detection, kwargs["detection_id"])
+            notifications = check_db.scalars(select(Notification)).all()
+            assert detection is not None
+            assert len(notifications) == 1
+            assert notifications[0].type == "DETECTION_ALERT"
+        finally:
+            check_db.close()
+        return []
+
+    monkeypatch.setattr(
+        evidence_auto, "create_detection_evidence", inspect_committed_alert
+    )
+    manager = LiveStreamManager()
+    camera_session = CameraSession(
+        camera_pk=None,
+        camera_code="CAM-TEST",
+        name="Test camera",
+        stream_url="webcam:0",
+        model_version="coco/test",
+    )
+
+    detection_id = manager._persist_detection(
+        camera_session,
+        "mobile_phone",
+        0.9,
+        np.zeros((8, 8, 3), dtype=np.uint8),
+        confirmed=True,
+    )
+
+    assert detection_id is not None
+    assert evidence_called

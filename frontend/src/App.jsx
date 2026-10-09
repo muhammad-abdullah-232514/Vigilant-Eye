@@ -1,14 +1,13 @@
-import { useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import AppLayout from "./components/AppLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { DenyAdministrator, RequireAdministrator, RequireRoles } from "./components/RoleGates";
 import { useAuth } from "./context/AuthContext";
-import { DEMO_HELPERS_ENABLED } from "./config/demoMode";
 import { homePathForRole } from "./config/roleHome";
 import {
   CASE_CREATE_ROLES,
   DETECTION_ROLES,
+  EXAM_TOOLKIT_ROLES,
   EVIDENCE_VIEW_ROLES,
   MASTER_DATA_VIEW_ROLES,
   MONITOR_ROLES,
@@ -17,7 +16,6 @@ import {
   RESULT_CONTROL_ROLES,
   STUDENT_DIRECTORY_VIEW_ROLES,
 } from "./config/roleAccess";
-import { fetchAuthConfig } from "./services/api";
 import NotFoundPage from "./components/NotFoundPage";
 import ProfilePage from "./pages/ProfilePage";
 import AdminAuditPage from "./pages/AdminAuditPage";
@@ -40,46 +38,13 @@ import HelpPage from "./pages/HelpPage";
 import Login from "./pages/Login";
 import MasterDataPage from "./pages/MasterDataPage";
 import MonitoringPage from "./pages/MonitoringPage";
-import DemoMonitoringPage from "./pages/DemoMonitoringPage";
 import NotificationsPage from "./pages/NotificationsPage";
 import ReportsPage from "./pages/ReportsPage";
 import ResultControlsPage from "./pages/ResultControlsPage";
 import StudentsPage from "./pages/StudentsPage";
+import ExamToolkitPage from "./pages/ExamToolkitPage";
+import StudentPortalEntry from "./pages/StudentPortalEntry";
 // Operational /app/users removed (C11-B) — staff provisioning is Administrator-only.
-
-function DemoMonitoringGate() {
-  const [allowed, setAllowed] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!DEMO_HELPERS_ENABLED) {
-      setAllowed(false);
-      return undefined;
-    }
-    fetchAuthConfig()
-      .then((cfg) => {
-        if (!cancelled) setAllowed(Boolean(cfg?.demo_helpers_enabled));
-      })
-      .catch(() => {
-        if (!cancelled) setAllowed(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (allowed === null) {
-    return (
-      <div className="rounded-xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-600 shadow-sm">
-        Checking demo access…
-      </div>
-    );
-  }
-  if (!allowed) {
-    return <Navigate to="/app/monitoring" replace />;
-  }
-  return <DemoMonitoringPage />;
-}
 
 function RoleHomeRedirect() {
   const { user } = useAuth();
@@ -129,6 +94,7 @@ export default function App() {
         }
       />
       <Route path="/login" element={<Login />} />
+      <Route path="/student-portal" element={<StudentPortalEntry />} />
       <Route
         path="/app"
         element={
@@ -286,6 +252,14 @@ export default function App() {
           }
         />
         <Route
+          path="exam-toolkit"
+          element={
+            <OpsRoles roles={EXAM_TOOLKIT_ROLES}>
+              <ExamToolkitPage />
+            </OpsRoles>
+          }
+        />
+        <Route
           path="audit"
           element={
             <OpsRoles roles={OPERATIONAL_AUDIT_ROLES}>
@@ -298,14 +272,6 @@ export default function App() {
           element={
             <OpsRoles roles={MONITOR_ROLES}>
               <MonitoringPage />
-            </OpsRoles>
-          }
-        />
-        <Route
-          path="monitoring/demo"
-          element={
-            <OpsRoles roles={MONITOR_ROLES}>
-              <DemoMonitoringGate />
             </OpsRoles>
           }
         />

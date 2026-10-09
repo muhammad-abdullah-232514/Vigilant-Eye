@@ -41,7 +41,7 @@ class LiveStartRequest(BaseModel):
     detect: bool = True
     persist: bool = True
     conf: float = Field(default=0.28, ge=0.05, le=0.95)
-    min_frames: int = Field(default=3, ge=1, le=30)
+    min_frames: int = Field(default=1, ge=1, le=30)
     source_override: str | None = Field(default=None, max_length=512)
 
 
@@ -208,6 +208,7 @@ def start_live(
         if override:
             override = _validate_source_url(override, allow_sample_file=True)
     else:
+        _validate_source_url(cam.stream_url, allow_sample_file=False)
         # Production: always run AI + persist validated incidents
         detect = True
         persist = True

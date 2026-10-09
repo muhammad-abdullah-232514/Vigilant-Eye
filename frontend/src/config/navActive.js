@@ -48,6 +48,7 @@ export function isSidebarNavActive(location, to) {
   // active only on the bare list — not when a status filter is present.
   if (toPath === "/app/cases") {
     if (currentPath !== "/app/cases") return false;
+    if (currentParams.get("scope") === "active") return false;
     const status = currentParams.get("status");
     return status == null || status === "";
   }

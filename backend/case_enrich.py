@@ -14,7 +14,12 @@ from result_control_enrich import result_control_summary_for_case
 from schemas.ufm_case import parse_recovered_materials
 
 
-def enrich_case(db: Session, case: UfmCase) -> dict:
+def enrich_case(
+    db: Session,
+    case: UfmCase,
+    *,
+    include_reporter_email: bool = True,
+) -> dict:
     student = db.get(Student, case.student_id)
     exam = db.get(Exam, case.exam_id)
     room = db.get(ExamRoom, exam.room_id) if exam else None
@@ -52,12 +57,21 @@ def enrich_case(db: Session, case: UfmCase) -> dict:
         "exam_course_name": exam.course_name if exam else None,
         "exam_semester": exam.semester if exam else None,
         "exam_date": exam.exam_date.isoformat() if exam and exam.exam_date else None,
+        "exam_start_time": (
+            exam.start_time.isoformat() if exam and exam.start_time else None
+        ),
+        "exam_end_time": (
+            exam.end_time.isoformat() if exam and exam.end_time else None
+        ),
         "room_number": room.room_number if room else None,
         "room_building": room.building if room else None,
         "camera_id": camera.id if camera else getattr(case, "camera_id", None),
         "camera_code": camera.camera_id if camera else None,
         "camera_name": camera.name if camera else None,
         "reporter_name": reporter.name if reporter else None,
+        "reporter_email": (
+            reporter.email if include_reporter_email and reporter else None
+        ),
         "reporter_role": reporter.role if reporter else None,
         "result_control": result_control_summary_for_case(db, case.id),
     }

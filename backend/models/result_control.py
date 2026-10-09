@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from decimal import Decimal
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from models.base import Base
@@ -18,6 +20,9 @@ class ResultControl(Base):
     result_status: Mapped[str] = mapped_column(String(50), default="HELD")
     transcript_status: Mapped[str] = mapped_column(String(50), default="BLOCKED")
     reason: Mapped[str] = mapped_column(Text)
+    implemented_penalties: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fine_amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    fine_paid: Mapped[bool] = mapped_column(Boolean, default=False)
     released_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     released_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True

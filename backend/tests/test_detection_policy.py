@@ -45,7 +45,7 @@ def test_phone_confidence_bands():
     d_mid, _ = decide(raw_label="cell phone", confidence=0.40, model_mode="coco")
     d_hi, _ = decide(raw_label="cell phone", confidence=0.70, model_mode="coco")
     assert d_low == Decision.IGNORE
-    assert d_mid == Decision.REVIEW
+    assert d_mid == Decision.CONFIRM
     assert d_hi == Decision.CONFIRM
 
 
@@ -54,6 +54,21 @@ def test_book_never_electronic_gadget():
     d, cat = decide(raw_label="book", confidence=0.99, model_mode="coco")
     assert cat == "notes_paper"
     assert d == Decision.REVIEW  # COCO books are review-only, not auto-confirm
+
+
+def test_custom_notes_paper_aliases_are_recognized():
+    for label in (
+        "notes_paper",
+        "notes paper",
+        "paper",
+        "notes",
+        "cheating-paper",
+    ):
+        assert map_raw_to_category(label, model_mode="custom") == "notes_paper"
+
+
+def test_notes_paper_aliases_are_not_invented_for_coco():
+    assert map_raw_to_category("paper", model_mode="coco") is None
 
 
 def test_unknown_label_not_gadget():

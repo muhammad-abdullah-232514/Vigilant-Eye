@@ -68,6 +68,13 @@ Frontend never receives SMTP credentials (Compose/API only).
 - Prefer a Google **App Password** (if allowed by Workspace policy) or an **approved SMTP relay**.
 - Workspace admins may require IP allowlists or relay-only sending.
 - Sender address should match university policy (`SMTP_FROM`).
+- For local Gmail delivery, set `EMAIL_ENABLED=1`, `SMTP_HOST=smtp.gmail.com`,
+  `SMTP_PORT=587`, `SMTP_USE_TLS=true`, and the sender mailbox in `SMTP_USER` and
+  `SMTP_FROM`. Put that account's App Password only in the root `.env` as
+  `SMTP_PASSWORD`; `.env` is ignored by Git. Never paste the App Password into source,
+  issues, or chat.
+- Restart the API after changing `.env`, then use **Administration → System → Send Test Email**
+  to verify delivery to the administrator's own mailbox before filing a real case.
 
 ## 6. Notification matrix
 

@@ -9,6 +9,7 @@ export default function ConfirmDialog({
   title,
   message,
   confirmLabel = "Confirm",
+  busyLabel = "Please wait…",
   cancelLabel = "Cancel",
   tone = "danger",
   busy = false,
@@ -120,7 +121,7 @@ export default function ConfirmDialog({
               if (!busy) onConfirm?.();
             }}
           >
-            {busy ? "Please wait…" : confirmLabel}
+            {busy ? busyLabel : confirmLabel}
           </button>
         </div>
       </div>

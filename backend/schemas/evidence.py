@@ -1,6 +1,21 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
+
+
+class EvidenceLinkRequest(BaseModel):
+    """Existing evidence records to attach to an accessible case."""
+
+    evidence_ids: list[int] = Field(min_length=1, max_length=25)
+
+    @field_validator("evidence_ids")
+    @classmethod
+    def validate_evidence_ids(cls, value: list[int]) -> list[int]:
+        if any(evidence_id <= 0 for evidence_id in value):
+            raise ValueError("evidence_ids must contain positive integers")
+        if len(set(value)) != len(value):
+            raise ValueError("evidence_ids must not contain duplicates")
+        return value
 
 
 class EvidenceOut(BaseModel):

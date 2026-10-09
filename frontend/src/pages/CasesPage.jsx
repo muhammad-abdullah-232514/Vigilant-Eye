@@ -10,29 +10,44 @@ import {
   formatCaseCreatedAt,
   formatStatusLabel,
   formatViolationLabel,
+  violationLabelClass,
   responsibleLabelForStatus,
 } from "../config/casePresentation";
 import { CASE_CREATE_ROLES, roleIn } from "../config/roleAccess";
 import { useAuth } from "../context/AuthContext";
 import { fetchCases } from "../services/api";
 
-function pageTitle(isStudent, statusFilter) {
+function pageTitle(isStudent, statusFilter, isActiveQueue) {
   if (isStudent) return "My UFM Cases";
+  if (isActiveQueue) {
+    return statusFilter
+      ? `Cases for Review · ${formatStatusLabel(statusFilter)}`
+      : "Cases for Review";
+  }
   if (!statusFilter) return "UFM Cases";
   return `UFM Cases · ${formatStatusLabel(statusFilter)}`;
 }
 
-function pageDescription(isStudent, statusFilter, filteredCount, totalCount) {
+function pageDescription(
+  isStudent,
+  statusFilter,
+  filteredCount,
+  totalCount,
+  isActiveQueue
+) {
   if (isStudent) {
     return "UFM cases linked to your student profile. Open a case to review details or submit a clarification.";
   }
   if (statusFilter) {
     return `Cases in this queue · ${filteredCount} shown.`;
   }
+  if (isActiveQueue) {
+    return `${filteredCount} case${filteredCount === 1 ? "" : "s"} awaiting action for your role.`;
+  }
   return `${totalCount} case${totalCount === 1 ? "" : "s"} on record for your role.`;
 }
 
-function emptyMessage(isStudent, statusFilter) {
+function emptyMessage(isStudent, statusFilter, isActiveQueue) {
   if (isStudent) {
     return statusFilter
       ? "No UFM cases match this status for your linked student profile."
@@ -50,6 +65,7 @@ function emptyMessage(isStudent, statusFilter) {
   if (statusFilter) {
     return `No UFM cases with status “${formatStatusLabel(statusFilter)}”.`;
   }
+  if (isActiveQueue) return "No UFM cases require your attention in this queue.";
   return "No UFM cases have been filed yet.";
 }
 
@@ -105,6 +121,7 @@ export default function CasesPage() {
   const isStudent = user?.role === "STUDENT";
   const canCreate = roleIn(user?.role, CASE_CREATE_ROLES);
   const [searchParams, setSearchParams] = useSearchParams();
+  const isActiveQueue = searchParams.get("scope") === "active";
   const statusFilter = searchParams.get("status") || "";
 
   const [items, setItems] = useState([]);
@@ -116,8 +133,7 @@ export default function CasesPage() {
     setError("");
     try {
       const data = await fetchCases({
-        scope: "dashboard",
-        status: statusFilter || undefined,
+        scope: isActiveQueue ? "active" : "dashboard",
       });
       setItems(Array.isArray(data) ? data : []);
     } catch {
@@ -130,7 +146,7 @@ export default function CasesPage() {
 
   useEffect(() => {
     load();
-  }, [statusFilter]);
+  }, [isActiveQueue]);
 
   const filtered = useMemo(() => {
     const list = !statusFilter
@@ -151,15 +167,17 @@ export default function CasesPage() {
   }, [items]);
 
   function onStatusChange(value) {
-    if (!value) setSearchParams({});
-    else setSearchParams({ status: value });
+    const nextParams = {};
+    if (isActiveQueue) nextParams.scope = "active";
+    if (value) nextParams.status = value;
+    setSearchParams(nextParams);
   }
 
   return (
     <PageShell>
       <PageHeader
         breadcrumb="Home / Cases"
-        title={pageTitle(isStudent, statusFilter)}
+        title={pageTitle(isStudent, statusFilter, isActiveQueue)}
         description={
           loading
             ? isStudent
@@ -169,7 +187,8 @@ export default function CasesPage() {
                 isStudent,
                 statusFilter,
                 filtered.length,
-                items.length
+                items.length,
+                isActiveQueue
               )
         }
         actions={
@@ -220,7 +239,7 @@ export default function CasesPage() {
           />
         ) : filtered.length === 0 ? (
           <EmptyState
-            title={emptyMessage(isStudent, statusFilter)}
+            title={emptyMessage(isStudent, statusFilter, isActiveQueue)}
             detail={
               isStudent
                 ? statusFilter
@@ -324,7 +343,11 @@ export default function CasesPage() {
                               .join(" · ") || "—"}
                           </div>
                         </td>
-                        <td>{formatViolationLabel(c.violation_type)}</td>
+                        <td>
+                          <span className={violationLabelClass(c.violation_type)}>
+                            {formatViolationLabel(c.violation_type)}
+                          </span>
+                        </td>
                         <td>
                           <StatusBadge status={c.status} />
                         </td>

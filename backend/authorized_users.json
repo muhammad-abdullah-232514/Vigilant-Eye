@@ -1,0 +1,40 @@
+[
+  {
+    "name": "VigilantEye Administrator",
+    "email": "vigilanteyenotifications@gmail.com",
+    "role": "ADMINISTRATOR"
+  },
+  {
+    "name": "Dr. Ali Azmat",
+    "email": "invigilatoruni@gmail.com",
+    "role": "INVIGILATOR"
+  },
+  {
+    "name": "Dr. Ahmed Ali",
+    "email": "headofdepartmentuni@gmail.com",
+    "role": "HOD"
+  },
+  {
+    "name": "DEC",
+    "email": "decuni70@gmail.com",
+    "role": "DEC"
+  },
+  {
+    "name": "Exam Dept",
+    "email": "232514abdullah@gmail.com",
+    "role": "EXAM_DEPARTMENT"
+  },
+  {
+    "name": "UFM Committee",
+    "email": "alonekingabdullah110@gmail.com",
+    "role": "UFM_COMMITTEE"
+  },
+  {
+    "name": "Muhammad Abdullah",
+    "email": "232514@students.au.edu.pk",
+    "role": "STUDENT",
+    "student_roll": "232514",
+    "department": "Unassigned",
+    "program": "Unassigned"
+  }
+]

@@ -7,16 +7,20 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, EmailStr, Field
 
+from schemas._base import InputModel
 
-class AdminUserCreate(BaseModel):
+
+class AdminUserCreate(InputModel):
     email: EmailStr
     role: str = Field(min_length=1, max_length=50)
     name: str | None = Field(default=None, max_length=100)
     student_roll: str | None = Field(default=None, max_length=50)
+    department: str | None = Field(default=None, min_length=1, max_length=100)
+    program: str | None = Field(default=None, min_length=1, max_length=100)
     is_active: bool = True
 
 
-class AdminUserUpdate(BaseModel):
+class AdminUserUpdate(InputModel):
     """Partial update. Email is intentionally omitted — unsafe without identity migration.
 
     Role changes and activation also have dedicated endpoints.
@@ -29,6 +33,8 @@ class AdminUserUpdate(BaseModel):
         max_length=50,
         description="Set to link STUDENT; empty string unlinks.",
     )
+    department: str | None = Field(default=None, min_length=1, max_length=100)
+    program: str | None = Field(default=None, min_length=1, max_length=100)
     unlink_student: bool = False
 
 
@@ -41,6 +47,8 @@ class AdminUserOut(BaseModel):
     created_at: datetime
     student_roll: str | None = None
     student_pk: int | None = None
+    department: str | None = None
+    program: str | None = None
 
     model_config = {"from_attributes": True}
 

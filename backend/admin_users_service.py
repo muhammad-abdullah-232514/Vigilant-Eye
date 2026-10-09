@@ -26,6 +26,17 @@ from portal_roles import (
 )
 from security import hash_password
 
+LEGACY_DEMO_USER_EMAILS = frozenset(
+    {
+        "student@demo.com",
+        "invigilator@demo.com",
+        "hod@demo.com",
+        "dec@demo.com",
+        "examdept@demo.com",
+        "ufm@demo.com",
+    }
+)
+
 
 def write_user_audit(
     db: Session,
@@ -97,6 +108,8 @@ def _user_dict(user: User, linked: Student | None) -> dict:
         "created_at": user.created_at,
         "student_roll": linked.student_id if linked else None,
         "student_pk": linked.id if linked else None,
+        "department": linked.department if linked else None,
+        "program": linked.program if linked else None,
     }
 
 
@@ -132,6 +145,8 @@ def link_student_roll(
     student_roll: str | None,
     *,
     create_if_missing: bool = True,
+    department: str | None = None,
+    program: str | None = None,
 ) -> Student | None:
     """Link STUDENT user to a Student row. Clears prior links for this user."""
     if user.role != "STUDENT":
@@ -163,8 +178,8 @@ def link_student_roll(
         linked = Student(
             student_id=roll,
             name=user.name,
-            department="Unassigned",
-            program="Unassigned",
+            department=(department or "").strip() or "Unassigned",
+            program=(program or "").strip() or "Unassigned",
             user_id=user.id,
         )
         db.add(linked)
@@ -177,6 +192,10 @@ def link_student_roll(
             detail=f"Student roll {roll} is already linked to another portal user",
         )
     linked.user_id = user.id
+    if department is not None and department.strip():
+        linked.department = department.strip()
+    if program is not None and program.strip():
+        linked.program = program.strip()
     return linked
 
 
@@ -194,6 +213,8 @@ def create_authorized_user(
     student_roll: str | None,
     actor_id: int | None,
     is_active: bool = True,
+    department: str | None = None,
+    program: str | None = None,
 ) -> User:
     email_n = normalize_email(email)
     role_u = validate_assignable_role(role)
@@ -216,11 +237,18 @@ def create_authorized_user(
     db.flush()
 
     if role_u == "STUDENT":
-        link_student_roll(db, user, student_roll, create_if_missing=True)
-    elif student_roll:
+        link_student_roll(
+            db,
+            user,
+            student_roll,
+            create_if_missing=True,
+            department=department,
+            program=program,
+        )
+    elif student_roll or department or program:
         raise HTTPException(
             status_code=400,
-            detail="student_roll is only valid for STUDENT role",
+            detail="Student roll, department, and program are only valid for STUDENT role",
         )
 
     write_user_audit(
@@ -495,7 +523,9 @@ def build_user_query(
     staff_or_student: str | None,
     linked: str | None,
 ):
-    query = select(User)
+    query = select(User).where(
+        func.lower(User.email).notin_(LEGACY_DEMO_USER_EMAILS)
+    )
     if q:
         term = f"%{q.strip().lower()}%"
         roll_ids = list(
@@ -547,15 +577,34 @@ def build_user_query(
 
 def user_stats(db: Session) -> dict:
     """Aggregate stats without loading every User row into Python."""
-    total = int(db.scalar(select(func.count()).select_from(User)) or 0)
+    visible_user_ids = select(User.id).where(
+        func.lower(User.email).notin_(LEGACY_DEMO_USER_EMAILS)
+    )
+    total = int(
+        db.scalar(
+            select(func.count()).select_from(User).where(
+                User.id.in_(visible_user_ids)
+            )
+        )
+        or 0
+    )
     active = int(
-        db.scalar(select(func.count()).select_from(User).where(User.is_active.is_(True)))
+        db.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(
+                User.is_active.is_(True),
+                User.id.in_(visible_user_ids),
+            )
+        )
         or 0
     )
     inactive = max(0, total - active)
     by_role = {r: 0 for r in sorted(PORTAL_ROLES)}
     for role, count in db.execute(
-        select(User.role, func.count()).group_by(User.role)
+        select(User.role, func.count())
+        .where(User.id.in_(visible_user_ids))
+        .group_by(User.role)
     ).all():
         by_role[str(role)] = int(count)
     students_total = by_role.get("STUDENT", 0)
@@ -564,7 +613,9 @@ def user_stats(db: Session) -> dict:
             select(func.count()).select_from(Student).where(
                 Student.user_id.is_not(None),
                 Student.user_id.in_(
-                    select(User.id).where(User.role == "STUDENT")
+                    select(User.id)
+                    .where(User.role == "STUDENT")
+                    .where(func.lower(User.email).notin_(LEGACY_DEMO_USER_EMAILS))
                 ),
             )
         )

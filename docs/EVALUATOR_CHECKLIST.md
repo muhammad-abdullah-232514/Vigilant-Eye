@@ -26,7 +26,7 @@ Detailed steps: [DEMO_RUNBOOK.md](DEMO_RUNBOOK.md) · Scope map: [SCOPE_COVERAGE
 | 8 | Case shows student name/roll + exam/room | ☐ |
 | 9 | Student sees case + notification → clarification | ☐ |
 | 10 | HOD→DEC→Exam→UFM with signed reviews | ☐ |
-| 11 | On APPROVE: result hold appears | ☐ |
+| 11 | Committee recommends penalties; Exam Department records implementation; fine payment gates release when applicable | ☐ |
 | 12 | Evidence **Open file** works | ☐ |
 | 13 | Reports **Export cases CSV** | ☐ |
 | 14 | Audit Trail shows create / sign / review / hold | ☐ |

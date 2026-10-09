@@ -130,7 +130,7 @@ def _h(tok: str) -> dict:
 
 def test_exam_update_and_invalid_times(client_db):
     c = client_db["client"]
-    h = _h(client_db["token"](client_db["hod"]))
+    h = _h(client_db["token"](client_db["exam_u"]))
     exam = client_db["exam"]
     bad = c.patch(
         f"/exams/{exam.id}",
@@ -205,7 +205,7 @@ def test_enrollment_enforced_when_roster_present(client_db):
 
 def test_invigilator_assignment(client_db):
     c = client_db["client"]
-    h = _h(client_db["token"](client_db["hod"]))
+    h = _h(client_db["token"](client_db["exam_u"]))
     exam = client_db["exam"]
     inv = client_db["inv"]
     r = c.post(

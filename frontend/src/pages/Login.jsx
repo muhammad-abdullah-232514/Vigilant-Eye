@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import DemoLoginShortcuts from "../components/DemoLoginShortcuts";
-import { DEMO_HELPERS_ENABLED } from "../config/demoMode";
 import { homePathForRole } from "../config/roleHome";
 import { useAuth } from "../context/AuthContext";
 import { fetchAuthConfig } from "../services/api";
@@ -54,17 +52,16 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [authConfig, setAuthConfig] = useState(null);
-  const [configLoading, setConfigLoading] = useState(true);
   const googleBtnRef = useRef(null);
   useLoginFont();
 
-  const mode = authConfig?.auth_mode || "demo";
+  const envGoogleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
+  const mode = authConfig?.auth_mode || (envGoogleClientId ? "google" : "demo");
   const passwordEnabled = Boolean(authConfig?.password_login_enabled);
-  const googleEnabled = Boolean(authConfig?.google_auth_enabled);
-  const googleClientId = authConfig?.google_client_id || "";
-  // Server may disable shortcuts (AUTH_MODE=google); outer DEMO_HELPERS_ENABLED
-  // stays compile-time so production builds can tree-shake demo credentials.
-  const serverDemoHelpers = Boolean(authConfig?.demo_helpers_enabled);
+  const googleEnabled = authConfig
+    ? Boolean(authConfig.google_auth_enabled)
+    : Boolean(envGoogleClientId);
+  const googleClientId = authConfig?.google_client_id || envGoogleClientId;
   const institutionalGoogleOnly = mode === "google" && googleEnabled;
 
   useEffect(() => {
@@ -75,16 +72,8 @@ export default function Login() {
         if (!cancelled) setAuthConfig(cfg);
       } catch {
         if (!cancelled) {
-          setAuthConfig({
-            auth_mode: "demo",
-            password_login_enabled: DEMO_HELPERS_ENABLED,
-            google_auth_enabled: false,
-            google_client_id: null,
-            demo_helpers_enabled: DEMO_HELPERS_ENABLED,
-          });
+          setAuthConfig(null);
         }
-      } finally {
-        if (!cancelled) setConfigLoading(false);
       }
     })();
     return () => {
@@ -160,24 +149,6 @@ export default function Login() {
     }
   }
 
-  async function signInAs(accountEmail, demoPassword) {
-    if (!DEMO_HELPERS_ENABLED || !serverDemoHelpers) return;
-    setEmail(accountEmail);
-    setPassword(demoPassword);
-    setSubmitting(true);
-    setFormError("");
-    try {
-      const loggedIn = await login(accountEmail, demoPassword);
-      navigate(homePathForRole(loggedIn?.role), { replace: true });
-    } catch (err) {
-      setFormError(err.message || "Login failed");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  const showShortcuts = DEMO_HELPERS_ENABLED && serverDemoHelpers;
-
   return (
     <div
       className="min-h-[100dvh] bg-au-surface lg:grid lg:h-[100dvh] lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] lg:overflow-hidden"
@@ -197,7 +168,7 @@ export default function Login() {
           src="/au-logo-white.png"
           alt=""
           aria-hidden="true"
-          className="pointer-events-none absolute -right-28 top-10 w-[520px] max-w-none opacity-[0.045] lg:-right-40 lg:top-[-40px] lg:w-[820px]"
+          className="pointer-events-none absolute left-1/2 top-1/2 w-[min(82%,820px)] max-w-none -translate-x-1/2 -translate-y-1/2 opacity-[0.045]"
         />
         {["left-5 top-5 border-l-2 border-t-2", "right-5 top-5 border-r-2 border-t-2", "bottom-5 left-5 border-b-2 border-l-2", "bottom-5 right-5 border-b-2 border-r-2"].map(
           (pos) => (
@@ -227,17 +198,11 @@ export default function Login() {
           </p>
         </div>
 
-        {showShortcuts ? (
-          <div className="relative z-10 mt-auto hidden border-t border-white/10 pt-[clamp(12px,3vh,32px)] lg:block">
-            <DemoLoginShortcuts submitting={submitting} onSignInAs={signInAs} variant="desktop" />
-          </div>
-        ) : (
-          <p className="relative z-10 mt-auto hidden pt-8 text-sm text-slate-400 lg:block">
-            {institutionalGoogleOnly
-              ? "Use your authorized Google account to continue."
-              : "Sign in using your university-authorized Google account."}
-          </p>
-        )}
+        <p className="relative z-10 mt-auto hidden pt-8 text-sm text-slate-400 lg:block">
+          {institutionalGoogleOnly
+            ? "Use your authorized Google account to continue."
+            : "Sign in using your university-authorized Google account."}
+        </p>
       </section>
 
       {/* Sign-in card */}
@@ -250,19 +215,13 @@ export default function Login() {
           <h2 className="mt-2 text-4xl font-extrabold tracking-[-0.02em] text-au-navy lg:mt-[clamp(2px,0.8vh,8px)] lg:text-[clamp(26px,5vh,40px)]">
             {institutionalGoogleOnly ? "Sign in to the UFM Portal" : "Sign in"}
           </h2>
-          <p className="mt-3 text-[17px] leading-relaxed text-slate-600 lg:mt-[clamp(4px,1.2vh,12px)] lg:text-[clamp(13px,2.1vh,17px)]">
-            {institutionalGoogleOnly
-              ? "Use your authorized Google account to continue."
-              : googleEnabled
-                ? "Sign in using your university-authorized Google account."
-                : passwordEnabled
-                  ? "Enter your portal email and password to continue."
-                  : "Authentication is not configured. Contact IT support."}
-          </p>
-
-          {configLoading ? (
-            <p className="mt-6 text-sm text-slate-500" role="status">
-              Loading sign-in options…
+          {institutionalGoogleOnly || googleEnabled || passwordEnabled ? (
+            <p className="mt-3 text-[17px] leading-relaxed text-slate-600 lg:mt-[clamp(4px,1.2vh,12px)] lg:text-[clamp(13px,2.1vh,17px)]">
+              {institutionalGoogleOnly
+                ? "Use your authorized Google account to continue."
+                : googleEnabled
+                  ? "Sign in using your university-authorized Google account."
+                  : "Enter your portal email and password to continue."}
             </p>
           ) : null}
 
@@ -353,15 +312,10 @@ export default function Login() {
               {formError}
             </div>
           ) : null}
+
         </div>
       </section>
 
-      {/* Mobile: shortcuts below the card */}
-      {showShortcuts ? (
-        <section className="bg-[#081a33] px-5 pb-12 pt-10 lg:hidden">
-          <DemoLoginShortcuts submitting={submitting} onSignInAs={signInAs} variant="mobile" />
-        </section>
-      ) : null}
     </div>
   );
 }

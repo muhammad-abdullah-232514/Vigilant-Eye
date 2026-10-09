@@ -119,12 +119,13 @@ def _h(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _sign(action: str, remarks: str = "ok") -> dict:
+def _sign(action: str, remarks: str = "ok", **extra) -> dict:
     return {
         "action": action,
         "remarks": remarks,
         "signer_name": "C16 Tester",
         "signature_ack": True,
+        **extra,
     }
 
 
@@ -169,7 +170,11 @@ def test_result_controls_list_shows_student_and_case(client_db):
     r = c.post(
         f"/ufm-cases/{case_id}/reviews",
         headers=_h(client_db["token"](client_db["ufm"])),
-        json=_sign("APPROVE", "sustained"),
+        json=_sign(
+            "APPROVE",
+            "sustained",
+            recommended_penalties=["F_GRADE"],
+        ),
     )
     assert r.status_code == 201, r.text
 
@@ -185,11 +190,95 @@ def test_result_controls_list_shows_student_and_case(client_db):
     assert row["student_name"] == "C16 Student"
     assert row["student_roll"] == "C16STU01"
     assert row["case_number"]
-    assert row["case_status"] == "APPROVED"
+    assert row["case_status"] == "EXAM_DEPARTMENT_IMPLEMENTATION"
     assert "Automatic hold" in (row["reason"] or "")
     assert row["hold_source"] == "AUTOMATIC_APPROVE"
     assert row["held_by_name"] == "Ufm C16"
     assert row["held_at"] is not None
+    reviews = c.get(
+        f"/ufm-cases/{case_id}/reviews",
+        headers=_h(client_db["token"](client_db["ufm"])),
+    )
+    assert reviews.status_code == 200
+    assert reviews.json()[-1]["recommended_penalties"] == ["F_GRADE"]
+
+
+def test_committee_approval_requires_recommended_penalty(client_db):
+    c = client_db["client"]
+    case_id = _create_case(client_db)
+    _advance_to_committee(client_db, case_id)
+
+    response = c.post(
+        f"/ufm-cases/{case_id}/reviews",
+        headers=_h(client_db["token"](client_db["ufm"])),
+        json=_sign("APPROVE"),
+    )
+    assert response.status_code == 400
+    assert "Select at least one" in response.json()["detail"]
+    assert c.get(
+        f"/ufm-cases/{case_id}",
+        headers=_h(client_db["token"](client_db["ufm"])),
+    ).json()["status"] == "UFM_COMMITTEE_REVIEW"
+
+
+def test_approved_case_can_recover_missing_implementation(client_db):
+    c = client_db["client"]
+    case_id = _create_case(client_db)
+    _advance_to_committee(client_db, case_id)
+
+    approved = c.post(
+        f"/ufm-cases/{case_id}/reviews",
+        headers=_h(client_db["token"](client_db["ufm"])),
+        json=_sign(
+            "APPROVE",
+            recommended_penalties=["F_GRADE", "FINE"],
+        ),
+    )
+    assert approved.status_code == 201, approved.text
+
+    db = client_db["db"]
+    case = db.get(UfmCase, case_id)
+    case.status = "APPROVED"
+    db.commit()
+
+    result_control = db.scalar(
+        select(ResultControl).where(ResultControl.case_id == case_id)
+    )
+    blocked = c.patch(
+        f"/result-controls/{result_control.id}/release",
+        headers=_h(client_db["token"](client_db["exam"])),
+    )
+    assert blocked.status_code == 409
+    assert "implement" in blocked.json()["detail"].lower()
+
+    implementation = c.post(
+        f"/ufm-cases/{case_id}/reviews",
+        headers=_h(client_db["token"](client_db["exam"])),
+        json=_sign(
+            "IMPLEMENT",
+            implemented_penalties=["F_GRADE", "FINE"],
+            fine_amount="1000.00",
+        ),
+    )
+    assert implementation.status_code == 201, implementation.text
+    db.expire_all()
+    result_control = db.get(ResultControl, result_control.id)
+    db.refresh(case)
+    assert case.status == "APPROVED"
+    assert result_control.implemented_penalties == '["F_GRADE", "FINE"]'
+
+    paid = c.patch(
+        f"/result-controls/{result_control.id}/fine-payment",
+        headers=_h(client_db["token"](client_db["exam"])),
+        json={"fine_paid": True},
+    )
+    assert paid.status_code == 200, paid.text
+
+    released = c.patch(
+        f"/result-controls/{result_control.id}/release",
+        headers=_h(client_db["token"](client_db["exam"])),
+    )
+    assert released.status_code == 200, released.text
 
 
 def test_case_detail_includes_result_control_summary(client_db):
@@ -199,7 +288,7 @@ def test_case_detail_includes_result_control_summary(client_db):
     r = c.post(
         f"/ufm-cases/{case_id}/reviews",
         headers=_h(client_db["token"](client_db["ufm"])),
-        json=_sign("APPROVE"),
+        json=_sign("APPROVE", recommended_penalties=["F_GRADE"]),
     )
     assert r.status_code == 201
 
@@ -270,12 +359,36 @@ def test_release_authorized_and_denied(client_db):
     r = c.post(
         f"/ufm-cases/{case_id}/reviews",
         headers=_h(client_db["token"](client_db["ufm"])),
-        json=_sign("APPROVE"),
+        json=_sign(
+            "APPROVE",
+            recommended_penalties=["F_GRADE", "FINE"],
+        ),
     )
     assert r.status_code == 201
     db = client_db["db"]
     hold = db.scalar(select(ResultControl).where(ResultControl.case_id == case_id))
     assert hold is not None
+
+    ufm_headers = _h(client_db["token"](client_db["ufm"]))
+    assert c.get("/result-controls", headers=ufm_headers).status_code == 403
+    assert c.post(
+        "/result-controls",
+        headers=ufm_headers,
+        json={
+            "student_id": client_db["student"].id,
+            "case_id": case_id,
+            "reason": "manual committee hold",
+        },
+    ).status_code == 403
+    assert c.patch(
+        f"/result-controls/{hold.id}/release",
+        headers=ufm_headers,
+    ).status_code == 403
+    assert c.patch(
+        f"/result-controls/{hold.id}/fine-payment",
+        headers=ufm_headers,
+        json={"fine_paid": True},
+    ).status_code == 403
 
     r = c.patch(
         f"/result-controls/{hold.id}/release",
@@ -287,12 +400,43 @@ def test_release_authorized_and_denied(client_db):
         f"/result-controls/{hold.id}/release",
         headers=_h(client_db["token"](client_db["exam"])),
     )
+    assert r.status_code == 409
+    assert "implement" in r.json()["detail"].lower()
+
+    implemented = c.post(
+        f"/ufm-cases/{case_id}/reviews",
+        headers=_h(client_db["token"](client_db["exam"])),
+        json=_sign(
+            "IMPLEMENT",
+            implemented_penalties=["F_GRADE", "FINE"],
+            fine_amount="2500.00",
+        ),
+    )
+    assert implemented.status_code == 201, implemented.text
+    assert c.patch(
+        f"/result-controls/{hold.id}/release",
+        headers=_h(client_db["token"](client_db["exam"])),
+    ).status_code == 409
+
+    paid = c.patch(
+        f"/result-controls/{hold.id}/fine-payment",
+        headers=_h(client_db["token"](client_db["exam"])),
+        json={"fine_paid": True},
+    )
+    assert paid.status_code == 200, paid.text
+    assert paid.json()["fine_paid"] is True
+    r = c.patch(
+        f"/result-controls/{hold.id}/release",
+        headers=_h(client_db["token"](client_db["exam"])),
+    )
     assert r.status_code == 200
     body = r.json()
     assert body["result_status"] == "RELEASED"
     assert body["transcript_status"] == "ALLOWED"
     assert body["released_by_name"] == "Exam C16"
     assert body["student_name"] == "C16 Student"
+    assert float(body["fine_amount"]) == 2500.00
+    assert body["fine_paid"] is True
 
 
 def test_result_controls_page_student_first_ux_markers():
@@ -300,13 +444,13 @@ def test_result_controls_page_student_first_ux_markers():
 
     root = Path(__file__).resolve().parents[2] / "frontend" / "src"
     page = (root / "pages" / "ResultControlsPage.jsx").read_text(encoding="utf-8")
-    detail = (root / "pages" / "CaseDetailPage.jsx").read_text(encoding="utf-8")
+    access = (root / "config" / "roleAccess.js").read_text(encoding="utf-8")
     assert "Affected students" in page
     assert "Release Result Hold" in page
+    assert "Open case to record implementation" in page
+    assert "This administrative view is limited to Exam Department accounts." in page
     assert "portal-data-cards" in page
     assert "portal-table-desktop" in page
     assert "Search student" in page
-    assert "Result control" in detail
-    assert "formatResultStatusLabel" in detail
-    assert "Release Result Hold" in detail
+    assert 'export const RESULT_CONTROL_ROLES = Object.freeze(["EXAM_DEPARTMENT"]);' in access
     assert "Place Result Hold" not in page

@@ -112,28 +112,10 @@ export default function AdminImportPage() {
       <PageHeader
         breadcrumb="Home / Administration / Import"
         title="Bulk User Import"
-        description="Upload → parse → validate → preview → confirm → import. Existing roles are never overwritten silently."
       />
 
       <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
-        <p className="font-semibold text-au-navy">CSV columns</p>
-        <p className="mt-1 font-mono text-xs">email,role,name,student_roll</p>
-        <p className="mt-2">
-          STUDENT rows require <code>student_roll</code>. Staff rows must leave
-          roll empty. Supported roles: ADMINISTRATOR, STUDENT, INVIGILATOR, HOD,
-          DEC, EXAM_DEPARTMENT, UFM_COMMITTEE.
-        </p>
-        <p className="mt-2 rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 text-sky-950">
-          Imported accounts sign in with the authorized Google account associated
-          with each email. No portal passwords are created.
-        </p>
-        <ol className="mt-3 list-decimal space-y-1 pl-5 text-xs text-slate-500">
-          <li>Upload CSV</li>
-          <li>Preview classification (valid / invalid / duplicates / conflicts)</li>
-          <li>Confirm import explicitly</li>
-          <li>Review created / skipped / conflicts summary</li>
-        </ol>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             className="btn-secondary"
@@ -205,10 +187,19 @@ export default function AdminImportPage() {
           <label className="btn-secondary inline-flex w-full max-w-md cursor-pointer justify-start gap-2 overflow-hidden">
             <input
               type="file"
+              required
               accept=".csv,text/csv"
               className="sr-only"
               onChange={(e) => {
-                setFile(e.target.files?.[0] || null);
+                const selectedFile = e.target.files?.[0] || null;
+                if (selectedFile && selectedFile.size > 2 * 1024 * 1024) {
+                  setFile(null);
+                  setError("CSV file is too large. Maximum size is 2 MB.");
+                  e.target.value = "";
+                } else {
+                  setFile(selectedFile);
+                  setError("");
+                }
                 setPreview(null);
                 setResult(null);
               }}
@@ -234,8 +225,7 @@ export default function AdminImportPage() {
         <div className="space-y-4">
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
             Total rows: {preview.total_rows}. Ready to create:{" "}
-            <strong>{preview.can_import_count}</strong>. Role conflicts and
-            student-link problems are never silently applied.
+            <strong>{preview.can_import_count}</strong>.
           </div>
           <RowTable title="Valid" rows={preview.valid} tone="ok" />
           <RowTable title="Already exists" rows={preview.already_exists} tone="warn" />

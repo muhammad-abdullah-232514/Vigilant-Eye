@@ -24,25 +24,26 @@ def test_frontend_workflow_rules_match_backend():
                 assert st in text
 
 
-def test_return_always_goes_to_pending():
-    assert next_status(role="HOD", action="RETURN", current_status="DEC_REVIEW") == "PENDING"
+def test_return_routes_to_the_intended_review_stage():
+    import pytest
+    from fastapi import HTTPException
+
+    assert next_status(role="HOD", action="RETURN", current_status="UNDER_REVIEW") == "PENDING"
     assert next_status(role="DEC", action="RETURN", current_status="DEC_REVIEW") == "PENDING"
-    assert (
-        next_status(
-            role="DEC",
-            action="RETURN",
-            current_status="EXAM_DEPARTMENT_REVIEW",
-        )
-        == "PENDING"
-    )
-    assert (
-        next_status(
-            role="EXAM_DEPARTMENT",
-            action="RETURN",
-            current_status="UFM_COMMITTEE_REVIEW",
-        )
-        == "PENDING"
-    )
+    assert next_status(
+        role="EXAM_DEPARTMENT",
+        action="RETURN",
+        current_status="EXAM_DEPARTMENT_REVIEW",
+    ) == "DEC_REVIEW"
+
+    for role, status in (
+        ("HOD", "DEC_REVIEW"),
+        ("DEC", "EXAM_DEPARTMENT_REVIEW"),
+        ("EXAM_DEPARTMENT", "UFM_COMMITTEE_REVIEW"),
+    ):
+        with pytest.raises(HTTPException) as exc:
+            next_status(role=role, action="RETURN", current_status=status)
+        assert exc.value.status_code == 400
 
 
 def test_forward_destinations():
@@ -68,6 +69,14 @@ def test_final_decisions():
             action="APPROVE",
             current_status="UFM_COMMITTEE_REVIEW",
         )
+        == "EXAM_DEPARTMENT_IMPLEMENTATION"
+    )
+    assert (
+        next_status(
+            role="EXAM_DEPARTMENT",
+            action="IMPLEMENT",
+            current_status="EXAM_DEPARTMENT_IMPLEMENTATION",
+        )
         == "APPROVED"
     )
     assert (
@@ -80,23 +89,36 @@ def test_final_decisions():
     )
 
 
-def test_case_detail_has_what_happens_next_panel():
+def test_case_detail_keeps_actions_on_shared_form_without_duplicate_panel():
     detail = (FRONTEND / "pages" / "CaseDetailPage.jsx").read_text(encoding="utf-8")
-    assert "What happens next?" in detail
+    review_form = (FRONTEND / "components" / "CaseReviewForm.jsx").read_text(
+        encoding="utf-8"
+    )
+    assert "What happens next?" not in detail
     assert "resolveReviewOutcome" in detail
     assert "workflowPresentation" in detail
-    assert "Return always sets status to Pending" in detail
     assert "After this action" in detail
-    assert "Result control:" in detail
+    assert "Result control:" not in detail
+    assert "actionOutcomes.map" in review_form
+    assert "RETURN" in review_form
     # Must not invent previous-reviewer-only return
-    assert "previous reviewer" in detail.lower()
+    assert "previous reviewer" not in detail.lower()
+
+
+def test_frontend_hides_return_after_role_forwards_case():
+    wp = (FRONTEND / "config" / "workflowPresentation.js").read_text(
+        encoding="utf-8"
+    )
+    assert 'from: ["DEC_REVIEW"],\n      to: "PENDING"' in wp
+    assert 'from: ["EXAM_DEPARTMENT_REVIEW"],\n      to: "DEC_REVIEW"' in wp
 
 
 def test_workflow_presentation_explains_return_and_approve():
     wp = (FRONTEND / "config" / "workflowPresentation.js").read_text(
         encoding="utf-8"
     )
-    assert "Pending" in wp
+    assert "preceding review stage" in wp
+    assert "Back to DEC" in wp
     assert "result hold" in wp.lower() or "On Hold" in wp
     assert "RETURN" in wp
     assert "APPROVE" in wp

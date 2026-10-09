@@ -1,9 +1,10 @@
 from pydantic import BaseModel, Field, field_validator
 
+from schemas._base import InputModel
 from student_roll import clean_student_roll
 
 
-class StudentCreate(BaseModel):
+class StudentCreate(InputModel):
     """JSON body the client sends when creating a student."""
 
     student_id: str = Field(min_length=1, max_length=50)
@@ -18,7 +19,7 @@ class StudentCreate(BaseModel):
         return clean_student_roll(value)
 
 
-class StudentLinkUser(BaseModel):
+class StudentLinkUser(InputModel):
     """Attach or clear a portal user for an existing student."""
 
     user_id: int | None = Field(default=None, gt=0)

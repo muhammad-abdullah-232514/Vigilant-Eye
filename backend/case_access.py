@@ -30,6 +30,9 @@ DETECTION_STAFF_ROLES = frozenset({"INVIGILATOR"})
 # Case-linked evidence upload (POST /evidence). Viewers use list/file APIs.
 EVIDENCE_UPLOAD_ROLES = frozenset({"INVIGILATOR"})
 
+# Result hold administration is owned by the Exam Department.
+RESULT_CONTROL_ROLES = frozenset({"EXAM_DEPARTMENT"})
+
 # Institutional reports + case CSV export (NOT monitoring/create sets).
 # Invigilator: own reported cases only. Reviewing roles: reporting scope.
 REPORTS_ROLES = frozenset(
@@ -67,6 +70,7 @@ OPEN_CASE_STATUSES = frozenset(
         "UNDER_REVIEW",
         "DEC_REVIEW",
         "EXAM_DEPARTMENT_REVIEW",
+        "EXAM_DEPARTMENT_IMPLEMENTATION",
         "UFM_COMMITTEE_REVIEW",
     }
 )
@@ -77,7 +81,9 @@ FINAL_CASE_STATUSES = frozenset({"APPROVED", "REJECTED"})
 ACTIVE_QUEUE_STATUSES_BY_ROLE: dict[str, frozenset[str]] = {
     "HOD": frozenset({"PENDING", "UNDER_REVIEW"}),
     "DEC": frozenset({"DEC_REVIEW"}),
-    "EXAM_DEPARTMENT": frozenset({"EXAM_DEPARTMENT_REVIEW"}),
+    "EXAM_DEPARTMENT": frozenset(
+        {"EXAM_DEPARTMENT_REVIEW", "EXAM_DEPARTMENT_IMPLEMENTATION"}
+    ),
     "UFM_COMMITTEE": frozenset({"UFM_COMMITTEE_REVIEW"}),
 }
 
@@ -99,6 +105,7 @@ CASE_LIST_STATUSES_BY_ROLE: dict[str, frozenset[str]] = {
         {
             "EXAM_DEPARTMENT_REVIEW",
             "UFM_COMMITTEE_REVIEW",
+            "EXAM_DEPARTMENT_IMPLEMENTATION",
         }
     )
     | FINAL_CASE_STATUSES,

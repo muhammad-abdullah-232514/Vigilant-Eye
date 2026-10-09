@@ -20,7 +20,8 @@ if TYPE_CHECKING:  # keep this module import-light: pydantic schemas use clean_s
 
     from models.user import User
 
-ROLL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9\-_/]{1,49}$")
+# University roll numbers are exactly 6 digits (e.g. 232430).
+ROLL_PATTERN = re.compile(r"^\d{6}$")
 
 
 def clean_student_roll(value: str | None) -> str:
@@ -34,7 +35,7 @@ def clean_student_roll(value: str | None) -> str:
         )
     if not ROLL_PATTERN.match(roll):
         raise ValueError(
-            "Student roll may contain only letters, digits, '-', '_' or '/' (e.g. 232430)"
+            "Student roll must be exactly 6 digits (e.g. 232430)"
         )
     return roll
 

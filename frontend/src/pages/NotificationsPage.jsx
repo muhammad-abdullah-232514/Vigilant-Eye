@@ -9,6 +9,7 @@ import {
   actionLabelForNotification,
   categoryForNotificationType,
   destinationForNotification,
+  formatNotificationMessage,
   formatNotificationType,
 } from "../config/notificationPresentation";
 import { useAuth } from "../context/AuthContext";
@@ -73,6 +74,7 @@ export default function NotificationsPage() {
 
   const visible = useMemo(() => {
     if (filter === "unread") return items.filter((n) => !n.is_read);
+    if (filter === "read") return items.filter((n) => n.is_read);
     return items;
   }, [items, filter]);
 
@@ -153,6 +155,7 @@ export default function NotificationsPage() {
               >
                 <option value="all">All</option>
                 <option value="unread">Unread only</option>
+                <option value="read">Read only</option>
               </select>
             </label>
             <button
@@ -194,7 +197,9 @@ export default function NotificationsPage() {
             title={
               filter === "unread"
                 ? "You have no unread notifications."
-                : "You have no notifications."
+                : filter === "read"
+                  ? "You have no read notifications."
+                  : "You have no notifications."
             }
             detail={
               role === "STUDENT"
@@ -214,7 +219,7 @@ export default function NotificationsPage() {
                         onClick={() => onOpenAndGo(n)}
                         aria-current={active ? "true" : undefined}
                         className={[
-                          "portal-option flex w-full flex-wrap items-start justify-between gap-3 border-l-4 px-5 py-4 text-left transition",
+                          "portal-option flex w-full flex-wrap items-start justify-between gap-2 border-l-4 px-4 py-3 text-left transition sm:px-5",
                           active
                             ? "border-l-au-blue bg-sky-100"
                             : unread
@@ -223,32 +228,32 @@ export default function NotificationsPage() {
                         ].join(" ")}
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                               {categoryForNotificationType(n.type)}
                             </p>
                             {unread ? (
-                              <span className="rounded bg-au-navy px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                              <span className="shrink-0 rounded bg-au-navy px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
                                 Unread
                               </span>
                             ) : (
-                              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                              <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-slate-400">
                                 Read
                               </span>
                             )}
                           </div>
                           <p
                             className={[
-                              "mt-1 text-au-navy",
+                              "mt-0.5 text-sm leading-5 text-au-navy",
                               unread ? "font-semibold" : "font-medium",
                             ].join(" ")}
                           >
                             {n.title}
                           </p>
-                          <p className="mt-1 line-clamp-2 text-sm text-slate-600">
-                            {n.message}
+                          <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-600">
+                            {formatNotificationMessage(n)}
                           </p>
-                          <p className="mt-2 text-xs text-slate-400">
+                          <p className="mt-1 text-[11px] leading-4 text-slate-400">
                             {n.created_at
                               ? new Date(n.created_at).toLocaleString()
                               : ""}
@@ -297,7 +302,7 @@ export default function NotificationsPage() {
                     {selected.title}
                   </p>
                   <p className="mt-2 whitespace-pre-wrap text-slate-700">
-                    {selected.message}
+                    {formatNotificationMessage(selected)}
                   </p>
                 </div>
 

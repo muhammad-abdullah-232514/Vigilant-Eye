@@ -8,7 +8,7 @@
 | `google` (default in production) | No | Yes (requires `GOOGLE_CLIENT_ID`) | No | **Yes** |
 | `both` | Yes | Yes | Yes | **No** |
 
-Switch development to real Google testing:
+The recommended local configuration uses Google-only authentication:
 
 ```env
 AUTH_MODE=google
@@ -63,7 +63,10 @@ python provision_test_google_users.py --email 232514@students.au.edu.pk --role S
 python provision_test_google_users.py --email staff.example@gmail.com --role HOD --name "HOD Tester"
 ```
 
-Or use User Management in the portal (HOD / Exam Department) while still in `AUTH_MODE=demo` or `both`, then switch to `google`.
+The tracked roster in [../backend/authorized_users.json](../backend/authorized_users.json) is
+automatically seeded after migrations on every machine. Add accounts there to provision them on
+fresh databases. Seeding is idempotent and does not overwrite the role or active status of an
+existing database account. The roster contains emails and roles, but no credentials.
 
 ## Email notifications
 

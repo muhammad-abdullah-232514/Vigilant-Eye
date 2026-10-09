@@ -50,25 +50,44 @@ copy .env.example .env
 
 `start-dev.ps1` will create `.env` from `.env.example` automatically if `.env` is missing.
 
-### Start (one command)
+### Start on Windows (recommended; supports the laptop webcam)
 
 ```powershell
 .\start-dev.ps1 -Detach
 ```
 
-Or equivalently:
+On first run, install the native Windows API environment once:
 
 ```powershell
+.\scripts\start-windows.ps1 -Setup
+```
+
+The standard Windows launcher starts PostgreSQL and the frontend in Docker, and runs the
+API natively so it can access the webcam. `.\start-dev.ps1 -Status` checks service health;
+`.\start-dev.ps1 -Stop` stops the services without deleting the database volume. Backend
+process restarts clear active in-memory camera sessions; start monitoring again after a
+restart.
+
+Docker-only startup is still available for RTSP/IP cameras or when local webcam capture is
+not needed:
+
+```powershell
+.\start-dev.ps1 -Docker -Detach
+# or
 docker compose up --build -d
 ```
 
-### What startup does
+Do not use the Docker-only API for a Windows laptop webcam; Docker Desktop cannot pass
+through the built-in camera to the Linux container.
+
+### What Windows startup does
 
 ```text
 PostgreSQL container (healthy)
     → API waits for DB
     → Alembic upgrade to head (schema migrations)
-    → idempotent demo seed (when ENABLE_DEMO_SEED=1)
+    → idempotent authorized-user seed from backend/authorized_users.json
+    → demo seed skipped by default
     → uvicorn :8000
     → frontend Vite :5173
 ```
@@ -160,6 +179,24 @@ Open http://localhost:5173 → Live Monitoring → **Start Monitoring** on a cam
 `webcam:0`. The first time, macOS asks to allow camera access for the app that launched the script
 (Terminal / iTerm / VS Code) — allow it, then restart the API. If index 0 fails the API tries index 1.
 
+## Windows — live webcam monitoring
+
+Docker Desktop on Windows cannot access the built-in laptop camera. Run the API natively on Windows
+and leave PostgreSQL plus the frontend in Docker:
+
+```powershell
+.\scripts\start-windows.ps1 -Setup   # one-time: creates .venv and installs CPU inference dependencies
+.\scripts\start-windows.ps1           # starts DB/frontend in Docker and native API in this window
+.\scripts\start-windows.ps1 -Status
+.\scripts\start-windows.ps1 -Stop
+```
+
+Leave the PowerShell window running while using the portal; press Ctrl+C to stop the native API.
+Use `-Background` only when you specifically want a separate API process.
+
+Use `webcam:0` as the camera Stream URL in Exam Setup. Live Monitoring intentionally excludes sample
+clips; configure a webcam or live RTSP/HTTP camera source.
+
 ### AI model selection (`.env`)
 
 | Variable | Default | Meaning |
@@ -167,8 +204,8 @@ Open http://localhost:5173 → Live Monitoring → **Start Monitoring** on a cam
 | `YOLO_MODEL` | `auto` | `auto` = trained UFM detector if `ai/weights/ufm_od_v1.pt` exists, else COCO; `custom`; `coco` |
 | `YOLO_CUSTOM_WEIGHTS` | `ai/weights/ufm_od_v1.pt` | path to the trained detector |
 | `LIVE_IMGSZ` | `384` (Mac script) | inference size — lower = faster |
-| `UFM_CONFIRM_FRAMES` | `3` | consecutive detections before an alert (persistence) |
-| `UFM_PERSIST_COOLDOWN_SEC` | `45` | mute repeat alerts for the same object/place |
+| `UFM_CONFIRM_FRAMES` | `1` | consecutive detections before an alert (persistence) |
+| `UFM_PERSIST_COOLDOWN_SEC` | `1` | mute repeat alerts for the same object/place |
 | `UFM_CONF_<CLASS>_CONFIRM` | per class | confidence gate, e.g. `UFM_CONF_MOBILE_PHONE_CONFIRM=0.6` |
 | `UFM_YAW_ALERT_DEG` | `28` | head-turn angle counted as looking away |
 
@@ -196,22 +233,21 @@ docker compose -f docker-compose.rtsp-test.yml down
 
 ---
 
-## Demo accounts
+## Authorized Google accounts
 
-Password for all: **`Demo@123`**
+The tracked account allowlist in [backend/authorized_users.json](backend/authorized_users.json)
+is loaded automatically after database migrations. It stores account names, emails, roles, and
+the student roll link; it never stores Google credentials or usable passwords. This lets a fresh
+clone create the same authorized accounts without manually registering them again.
 
-| Role | Email |
-|------|--------|
-| Invigilator | `invigilator@demo.com` |
-| HOD | `hod@demo.com` |
-| DEC | `dec@demo.com` |
-| Exam Department | `examdept@demo.com` |
-| UFM Committee | `ufm@demo.com` |
-| Student | `student@demo.com` |
+The seed is idempotent: it creates missing accounts but does not change the role or active status
+of accounts already in the database. Add new authorized accounts to the JSON file and restart the
+API. Update the JSON role too when a role change should carry over to a fresh database. These
+email addresses and roles are tracked in Git and are visible to repository users.
 
-Student portal is linked to roll **`DEMO001`**. Create cases against that student to demo clarifications.
-
-Demo seed runs automatically on API container start and is **idempotent** (safe to restart).
+Google-only sign-in is the default in the provided environment files. Demo login shortcuts are
+removed from the login page. Legacy `@demo.com` accounts are disabled during API startup and
+excluded from the administrator user directory. The development demo seed is disabled by default.
 
 ---
 
@@ -230,7 +266,9 @@ Running against Windows PostgreSQL 14/18 is **unsupported** for demos.
 
 ## Core workflow (one line)
 
-`PENDING` → (staff open) `UNDER_REVIEW` → HOD FORWARD → `DEC_REVIEW` → DEC FORWARD → `EXAM_DEPARTMENT_REVIEW` → Exam FORWARD → `UFM_COMMITTEE_REVIEW` → APPROVE/REJECT → hold on approve.
+`PENDING` → (staff open) `UNDER_REVIEW` → HOD FORWARD → `DEC_REVIEW` → DEC FORWARD → `EXAM_DEPARTMENT_REVIEW` → Exam FORWARD → `UFM_COMMITTEE_REVIEW` → Committee APPROVE/REJECT → (on APPROVE) `EXAM_DEPARTMENT_IMPLEMENTATION` → Exam IMPLEMENT → `APPROVED`.
+
+Committee approval records one or more recommended penalties: F grade in the affected course, fine, semester relegation, F grades in all semester subjects, and/or expulsion. The Exam Department records implementation and any fine amount/payment. A result hold remains until implementation is recorded and, when a fine was recommended, payment is marked received; Exam Department alone releases the hold.
 
 Create case and each review require **digital sign-off** (typed full name + acknowledgment checkbox).
 
@@ -242,7 +280,7 @@ Use during a viva / demo. Prefer [docs/EVALUATOR_CHECKLIST.md](docs/EVALUATOR_CH
 
 ### Honesty check (submission scope)
 
-- [ ] Live Monitoring shown as MJPEG (webcam / sample clip / RTSP URL), not WebRTC mesh  
+- [ ] Live Monitoring shown as MJPEG (webcam / RTSP URL), not WebRTC mesh
 - [ ] Sign-off described as typed name + ack (not PKI)  
 - [ ] Email = SMTP optional / EMAIL_MOCK otherwise  
 - [ ] YOLO described honestly (custom train and/or COCO fallback)  
@@ -311,13 +349,13 @@ AI scripts live under `ai/` (`train_yolo.py`, `save_confirmed_to_db.py`; Live Mo
 | Symptom | Fix |
 |---------|-----|
 | `docker` not found | Install/start Docker Desktop |
+| Windows: "No webcam available inside Docker" | Run `.\scripts\start-windows.ps1 -Setup` once, then `.\scripts\start-windows.ps1`; this runs the API natively so it can access the laptop camera |
 | Mac: "Could not read frames from the Mac camera" | System Settings → Privacy & Security → Camera → allow Terminal/iTerm/VS Code; close FaceTime/Zoom; restart `./scripts/start-mac.sh` |
 | Mac: "No webcam available inside Docker" | The API is running in Docker — use `./scripts/start-mac.sh` (native API) instead of `docker compose up` |
 | RTSP camera "Could not connect" | Check IP/port/path/credentials from the API machine (`ffplay rtsp://…` or VLC); camera must be reachable on the network |
 | Backend NOT READY | `docker compose logs api` — wait for bootstrap; check `.env` has `POSTGRES_PASSWORD` + `JWT_SECRET` |
 | Port 5173/8000 busy | Stop old `npm run dev` / uvicorn; `.\start-dev.ps1 -Stop` then start again |
-| Login fails | Seed runs on API start; use emails above + `Demo@123` |
-| Student sees 0 cases | File cases against roll **DEMO001** |
+| Login fails | Confirm the Google email is listed in `backend/authorized_users.json` and the Google OAuth client is configured |
 | Want clean DB | **Destructive:** `docker compose down -v` then `.\start-dev.ps1 -Detach` |
 
 ---

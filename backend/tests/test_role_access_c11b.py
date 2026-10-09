@@ -172,12 +172,13 @@ def _h(tok: str) -> dict:
     return {"Authorization": f"Bearer {tok}"}
 
 
-def _sign(action="FORWARD", remarks="ok"):
+def _sign(action="FORWARD", remarks="ok", **extra):
     return {
         "action": action,
         "remarks": remarks,
         "signer_name": "Reviewer",
         "signature_ack": True,
+        **extra,
     }
 
 
@@ -404,11 +405,15 @@ def test_ufm_final_review_allowed_monitor_create_denied(client_db):
         c.post("/ufm-cases", headers=h, json=_case_body(client_db)).status_code
         == 403
     )
-    assert c.get("/result-controls", headers=h).status_code == 200
+    assert c.get("/result-controls", headers=h).status_code == 403
     ok = c.post(
         f"/ufm-cases/{case_id}/reviews",
         headers=h,
-        json=_sign("APPROVE", "sustained"),
+        json=_sign(
+            "APPROVE",
+            "sustained",
+            recommended_penalties=["F_GRADE"],
+        ),
     )
     assert ok.status_code == 201, ok.text
     # Staff create denied
@@ -580,7 +585,7 @@ def test_frontend_nav_admin_audit_path_and_no_ops_users(client_db):
     assert "Create UFM" not in hod_block
     assert "/app/reports" in hod_block
     assert "/app/audit" in hod_block
-    assert "/app/cases?status=PENDING" in hod_block
+    assert "/app/cases?scope=active" in hod_block
     assert "/app/cases" in hod_block
     assert "/app/evidence" in hod_block
     assert "UFM Review" in hod_block
@@ -622,7 +627,7 @@ def test_frontend_nav_admin_audit_path_and_no_ops_users(client_db):
     assert "/app/reports" in hod_actions
     assert "/app/audit" in hod_actions
     assert "/app/evidence" in hod_actions
-    assert "/app/cases?status=PENDING" in hod_actions
+    assert "/app/cases?scope=active" in hod_actions
 
     # DEC must not see Students / Forwarded to Exam Dept. shortcuts
     dec_block = nav.split("DEC: [")[1].split("EXAM_DEPARTMENT: [")[0]
@@ -632,7 +637,7 @@ def test_frontend_nav_admin_audit_path_and_no_ops_users(client_db):
     assert "status=EXAM_DEPARTMENT_REVIEW" not in dec_block
     assert "/app/cases?status=DEC_REVIEW" in dec_block
     assert "/app/cases" in dec_block
-    assert "/app/evidence" in dec_block
+    assert "/app/evidence" not in dec_block
     assert "/app/reports" in dec_block
     assert "/app/audit" in dec_block
     assert "UFM Review" in dec_block
@@ -667,7 +672,7 @@ def test_frontend_nav_admin_audit_path_and_no_ops_users(client_db):
     assert "/app/detections" not in exam_block
     assert "/app/cases/new" not in exam_block
     assert "Case Processing" in exam_block
-    assert "/app/cases?status=EXAM_DEPARTMENT_REVIEW" in exam_block
+    assert "/app/cases?scope=active" in exam_block
     assert "/app/result-controls" in exam_block
     assert "/app/reports" in exam_block
     assert "/app/audit" in exam_block
@@ -709,12 +714,10 @@ def test_frontend_nav_admin_audit_path_and_no_ops_users(client_db):
     assert "INVIGILATOR" in det_block
     assert "HOD" not in det_block
     assert "EXAM_DEPARTMENT" not in det_block
-    create_block = role_access.split("CASE_CREATE_ROLES")[1].split(
-        "EVIDENCE_UPLOAD_ROLES"
-    )[0]
-    assert "INVIGILATOR" in create_block
-    assert "HOD" not in create_block
-    assert "EXAM_DEPARTMENT" not in create_block
+    assert (
+        'export const CASE_CREATE_ROLES = Object.freeze(["INVIGILATOR"]);'
+        in role_access
+    )
 
     # UFM Committee must not see Students / monitoring / create case
     ufm_block = nav.split("UFM_COMMITTEE: [")[1].split("STUDENT: [")[0]
@@ -726,7 +729,7 @@ def test_frontend_nav_admin_audit_path_and_no_ops_users(client_db):
     assert "/app/cases?status=UFM_COMMITTEE_REVIEW" in ufm_block
     assert "/app/cases?status=APPROVED" in ufm_block
     assert "/app/cases?status=REJECTED" in ufm_block
-    assert "/app/result-controls" in ufm_block
+    assert "/app/result-controls" not in ufm_block
     assert "/app/evidence" in ufm_block
     assert "/app/reports" in ufm_block
     assert "/app/audit" in ufm_block
@@ -750,7 +753,7 @@ def test_frontend_nav_admin_audit_path_and_no_ops_users(client_db):
     assert "/app/monitoring" not in ufm_actions
     assert "/app/cases/new" not in ufm_actions
     assert "/app/cases?status=UFM_COMMITTEE_REVIEW" in ufm_actions
-    assert "/app/result-controls" in ufm_actions
+    assert "/app/result-controls" not in ufm_actions
     assert "/app/audit" in ufm_actions
 
     # Notification destinations must not send unauthorized roles to detections/holds

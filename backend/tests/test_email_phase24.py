@@ -5,6 +5,7 @@ Phase 24 — Production-ready email notification system.
 from __future__ import annotations
 
 import os
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -187,7 +188,13 @@ def test_recipient_is_user_email(client_db):
 
     db = client_db["db"]
     hod = client_db["hod"]
-    with patch("notify_helpers.send_email", return_value="sent") as mocked:
+    dispatched = threading.Event()
+
+    def send_email(**kwargs):
+        dispatched.set()
+        return "sent"
+
+    with patch("notify_helpers.send_email", side_effect=send_email) as mocked:
         create_notification(
             db,
             user_id=hod.id,
@@ -197,6 +204,7 @@ def test_recipient_is_user_email(client_db):
             message="Please review",
         )
         db.commit()
+        assert dispatched.wait(timeout=2)
         mocked.assert_called_once()
         assert mocked.call_args.kwargs["to_email"] == "hod24@example.com"
         assert "html" in mocked.call_args.kwargs
@@ -298,7 +306,13 @@ def test_clarification_type_sends_email(client_db):
 
     db = client_db["db"]
     student = client_db["student"]
-    with patch("notify_helpers.send_email", return_value="sent") as mocked:
+    dispatched = threading.Event()
+
+    def send_email(**kwargs):
+        dispatched.set()
+        return "sent"
+
+    with patch("notify_helpers.send_email", side_effect=send_email) as mocked:
         create_notification(
             db,
             user_id=student.id,
@@ -308,8 +322,40 @@ def test_clarification_type_sends_email(client_db):
             message="Please respond in the portal.",
         )
         db.commit()
+        assert dispatched.wait(timeout=2)
         mocked.assert_called_once()
         assert mocked.call_args.kwargs["to_email"] == student.email
+
+
+def test_student_notification_email_opens_student_portal(client_db, monkeypatch):
+    from notify_helpers import create_notification
+
+    monkeypatch.setattr(
+        "notify_helpers.PORTAL_BASE_URL", "https://portal.example.edu/"
+    )
+    db = client_db["db"]
+    student = client_db["student"]
+    dispatched = threading.Event()
+
+    def send_email(**kwargs):
+        dispatched.set()
+        return "sent"
+
+    with patch("notify_helpers.send_email", side_effect=send_email) as mocked:
+        create_notification(
+            db,
+            user_id=student.id,
+            case_id=7,
+            type="CASE_CREATED",
+            title="UFM case filed",
+            message="A case was filed.",
+        )
+        db.commit()
+        assert dispatched.wait(timeout=2)
+        mocked.assert_called_once()
+        assert "https://portal.example.edu/student-portal" in mocked.call_args.kwargs[
+            "html"
+        ]
 
 
 def test_portal_only_type_skips_email(client_db):
@@ -352,16 +398,26 @@ def test_smtp_failure_does_not_rollback_notification(client_db, monkeypatch):
 
     db = client_db["db"]
     hod = client_db["hod"]
-    with patch("email_notify.smtplib.SMTP", side_effect=OSError("down")):
-        create_notification(
-            db,
-            user_id=hod.id,
-            case_id=3,
-            type="RESULT_HOLD",
-            title="Hold applied",
-            message="Results held — see portal.",
-        )
-        db.commit()
+    dispatched = threading.Event()
+    send_email = __import__("notify_helpers").send_email
+
+    def dispatch_email(**kwargs):
+        result = send_email(**kwargs)
+        dispatched.set()
+        return result
+
+    with patch("notify_helpers.send_email", side_effect=dispatch_email):
+        with patch("email_notify.smtplib.SMTP", side_effect=OSError("down")):
+            create_notification(
+                db,
+                user_id=hod.id,
+                case_id=3,
+                type="RESULT_HOLD",
+                title="Hold applied",
+                message="Results held — see portal.",
+            )
+            db.commit()
+            assert dispatched.wait(timeout=2)
     note = db.scalar(
         select(Notification).where(
             Notification.user_id == hod.id, Notification.title == "Hold applied"
@@ -487,7 +543,13 @@ def test_one_notification_one_email(client_db):
     from notify_helpers import create_notification
 
     db = client_db["db"]
-    with patch("notify_helpers.send_email", return_value="sent") as mocked:
+    dispatched = threading.Event()
+
+    def send_email(**kwargs):
+        dispatched.set()
+        return "sent"
+
+    with patch("notify_helpers.send_email", side_effect=send_email) as mocked:
         create_notification(
             db,
             user_id=client_db["admin"].id,
@@ -497,7 +559,34 @@ def test_one_notification_one_email(client_db):
             message="See portal",
         )
         db.commit()
+        assert dispatched.wait(timeout=2)
         assert mocked.call_count == 1
+
+
+def test_smtp_delivery_does_not_block_database_commit(client_db):
+    from notify_helpers import create_notification
+
+    started = threading.Event()
+    finish = threading.Event()
+
+    def slow_send_email(**kwargs):
+        started.set()
+        finish.wait(timeout=2)
+        return "sent"
+
+    with patch("notify_helpers.send_email", side_effect=slow_send_email):
+        create_notification(
+            client_db["db"],
+            user_id=client_db["hod"].id,
+            case_id=9,
+            type="CASE_STATUS",
+            title="Status",
+            message="The case changed.",
+        )
+        client_db["db"].commit()
+        assert started.wait(timeout=2)
+        assert not finish.is_set()
+        finish.set()
 
 
 def test_aliases_smtp_username_and_from_email(monkeypatch):

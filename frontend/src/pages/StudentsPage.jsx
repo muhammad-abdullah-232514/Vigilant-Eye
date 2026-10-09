@@ -225,9 +225,11 @@ export default function StudentsPage() {
             <input
               required
               className={inputClass}
-              placeholder="Roll number, e.g. 232430 (not email)"
-              pattern="[A-Za-z0-9][A-Za-z0-9\-_\/]{1,49}"
-              title="Roll number (e.g. 232430) — letters, digits, '-', '_' or '/'; not an email address"
+              placeholder="Roll number, e.g. 232430 (6 digits)"
+              pattern="\d{6}"
+              inputMode="numeric"
+              maxLength={6}
+              title="Roll number must be exactly 6 digits (e.g. 232430)"
               value={form.student_id}
               onChange={(e) =>
                 setForm((p) => ({ ...p, student_id: e.target.value }))
@@ -235,6 +237,9 @@ export default function StudentsPage() {
             />
             <input
               required
+              minLength={1}
+              maxLength={100}
+              pattern=".*\S.*"
               className={inputClass}
               placeholder="Full name"
               value={form.name}
@@ -242,6 +247,9 @@ export default function StudentsPage() {
             />
             <input
               required
+              minLength={1}
+              maxLength={100}
+              pattern=".*\S.*"
               className={inputClass}
               placeholder="Department"
               value={form.department}
@@ -251,6 +259,9 @@ export default function StudentsPage() {
             />
             <input
               required
+              minLength={1}
+              maxLength={100}
+              pattern=".*\S.*"
               className={inputClass}
               placeholder="Program"
               value={form.program}
@@ -296,6 +307,9 @@ export default function StudentsPage() {
             </p>
             <input
               required
+              minLength={1}
+              maxLength={100}
+              pattern=".*\S.*"
               className={inputClass}
               placeholder="Full name"
               value={portalForm.name}
@@ -316,7 +330,8 @@ export default function StudentsPage() {
             <input
               required
               type="password"
-              minLength={4}
+              minLength={8}
+              maxLength={100}
               className={inputClass}
               placeholder="Password"
               value={portalForm.password}

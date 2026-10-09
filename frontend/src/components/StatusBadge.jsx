@@ -5,6 +5,7 @@ const STATUS_STYLES = {
   UNDER_REVIEW: "bg-sky-100 text-sky-900 ring-sky-200",
   DEC_REVIEW: "bg-violet-100 text-violet-900 ring-violet-200",
   EXAM_DEPARTMENT_REVIEW: "bg-indigo-100 text-indigo-900 ring-indigo-200",
+  EXAM_DEPARTMENT_IMPLEMENTATION: "bg-cyan-100 text-cyan-900 ring-cyan-200",
   UFM_COMMITTEE_REVIEW: "bg-fuchsia-100 text-fuchsia-900 ring-fuchsia-200",
   APPROVED: "bg-emerald-100 text-emerald-900 ring-emerald-200",
   REJECTED: "bg-rose-100 text-rose-900 ring-rose-200",

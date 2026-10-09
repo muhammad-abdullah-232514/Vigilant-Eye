@@ -9,6 +9,7 @@ export default function EvidenceFileActions({
   onError,
   onPreview,
   showPreview = false,
+  activePreview = false,
   className = "",
 }) {
   return (
@@ -16,7 +17,13 @@ export default function EvidenceFileActions({
       {showPreview && typeof onPreview === "function" ? (
         <button
           type="button"
-          className="text-xs font-semibold text-au-navy hover:underline"
+          aria-pressed={activePreview}
+          className={[
+            "rounded-md px-2 py-1 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-au-blue",
+            activePreview
+              ? "bg-sky-100 text-au-navy ring-1 ring-au-blue"
+              : "text-au-navy hover:bg-sky-50 hover:underline",
+          ].join(" ")}
           aria-label={`Preview evidence ${evidenceId}`}
           onClick={() => onPreview(evidenceId)}
         >

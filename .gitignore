@@ -46,3 +46,15 @@ ai/runs/
 ai/eval_videos/
 *.zip
 logs/
+*.log
+
+# Historical local test/build output captured at the repository root
+/_ai1_*.txt
+/_baseline_p20.txt
+/_p20_*.txt
+/_p21_*.txt
+/_p22_*.txt
+/_p23_*.txt
+
+# Ultralytics creates these local machine-specific runtime settings files.
+**/Ultralytics/settings.json

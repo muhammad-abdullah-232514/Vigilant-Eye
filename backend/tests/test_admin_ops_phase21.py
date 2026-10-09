@@ -110,21 +110,21 @@ def test_admin_full_lifecycle_without_cli(client_db):
             "email": "Phase21.Temp@Gmail.com",
             "name": "Phase21 Temp",
             "role": "STUDENT",
-            "student_roll": "P21TEMP",
+            "student_roll": "210021",
             "is_active": True,
         },
     )
     assert created.status_code == 201
     body = created.json()
     assert body["email"] == "phase21.temp@gmail.com"
-    assert body["student_roll"] == "P21TEMP"
+    assert body["student_roll"] == "210021"
     uid = body["id"]
 
     listed = c.get("/admin/users", headers=h, params={"q": "phase21.temp"})
     assert listed.status_code == 200
     assert any(u["id"] == uid for u in listed.json()["items"])
 
-    directory = c.get("/admin/students", headers=h, params={"q": "P21TEMP"})
+    directory = c.get("/admin/students", headers=h, params={"q": "210021"})
     assert directory.status_code == 200
     items = directory.json()["items"]
     assert items
@@ -135,7 +135,7 @@ def test_admin_full_lifecycle_without_cli(client_db):
     patched = c.patch(
         f"/admin/users/{uid}",
         headers=h,
-        json={"name": "Phase21 Temp Updated", "student_roll": "P21TEMP"},
+        json={"name": "Phase21 Temp Updated", "student_roll": "210021"},
     )
     assert patched.status_code == 200
     assert patched.json()["name"] == "Phase21 Temp Updated"

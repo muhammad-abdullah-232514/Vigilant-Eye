@@ -100,19 +100,19 @@ COCO_EXCLUDE_FROM_UFM = frozenset(
 # review_min: persist as is_confirmed=False candidate
 DEFAULT_THRESHOLDS: dict[str, tuple[float, float]] = {
     # (review_min, confirm_min) — live labeling; retune on your footage
-    "mobile_phone": (0.32, 0.55),
+    "mobile_phone": (0.30, 0.35),
     "laptop": (0.40, 0.60),
-    "smart_watch": (0.35, 0.58),
+    "smart_watch": (0.35, 0.40),
     "notes_paper": (0.35, 0.62),
     "electronic_gadget": (0.40, 0.65),
     "suspicious_object": (0.45, 0.70),
 }
 
 # Consecutive frames before emit (lower = faster alerts; still filters one-frame noise)
-DEFAULT_CONFIRM_FRAMES = int(os.getenv("UFM_CONFIRM_FRAMES", "3"))
-DEFAULT_REVIEW_FRAMES = int(os.getenv("UFM_REVIEW_FRAMES", "2"))
+DEFAULT_CONFIRM_FRAMES = int(os.getenv("UFM_CONFIRM_FRAMES", "1"))
+DEFAULT_REVIEW_FRAMES = int(os.getenv("UFM_REVIEW_FRAMES", "1"))
 DEFAULT_STALE_SEC = float(os.getenv("UFM_STREAK_STALE_SEC", "1.8"))
-DEFAULT_COOLDOWN_SEC = float(os.getenv("UFM_PERSIST_COOLDOWN_SEC", "45"))
+DEFAULT_COOLDOWN_SEC = float(os.getenv("UFM_PERSIST_COOLDOWN_SEC", "1"))
 
 
 def _env_float(name: str, default: float) -> float:
@@ -201,6 +201,17 @@ def map_raw_to_category(raw_label: str, *, model_mode: str = "coco") -> str | No
 
     # Custom aliases that ONLY make sense if the model was trained for them
     if model_mode != "coco":
+        notes_aliases = {
+            "notes paper",
+            "notes-paper",
+            "paper",
+            "notes",
+            "cheat sheet",
+            "cheating-paper",
+            "cheating_paper",
+        }
+        if raw in notes_aliases:
+            return "notes_paper"
         smart_aliases = {
             "smartwatch",
             "smart watch",

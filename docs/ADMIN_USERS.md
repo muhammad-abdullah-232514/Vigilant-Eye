@@ -28,7 +28,7 @@ Administrators **must not** see Live Monitoring, Detections, Cases, Evidence, Ex
 2. Open **Dashboard → + Add User** (or **Users → + Add User**).
 3. Enter the person’s **exact Google email**, display **name**, and portal **role**.
 4. Set **Active** (unchecked = authorized but cannot sign in yet).
-5. For **STUDENT**, enter a **student roll** to link (or create) the student record. Staff roles do not need a roll.
+5. For **STUDENT**, enter a **student roll**, **department**, and **program** to link (or create) the student record. Those values autofill the corresponding fields when an invigilator selects the student on the UFM case form. Staff roles do not need student details.
 6. Save. No portal password is created or emailed.
 7. Tell the user to open the portal login page and click **Continue with Google** using that same Google email.
 8. Backend verifies the Google ID token, finds the email in `users`, checks `is_active`, reads the **DB role**, and issues a JWT.

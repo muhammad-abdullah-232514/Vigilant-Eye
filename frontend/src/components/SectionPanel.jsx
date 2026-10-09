@@ -3,7 +3,6 @@
  */
 export default function SectionPanel({
   title,
-  description,
   actions,
   children,
   className = "",
@@ -15,9 +14,6 @@ export default function SectionPanel({
         <div className="portal-panel-header">
           <div className="min-w-0">
             {title ? <h2 className="portal-section-title">{title}</h2> : null}
-            {description ? (
-              <p className="mt-0.5 text-xs text-slate-500">{description}</p>
-            ) : null}
           </div>
           {actions ? (
             <div className="flex flex-wrap items-center gap-2">{actions}</div>

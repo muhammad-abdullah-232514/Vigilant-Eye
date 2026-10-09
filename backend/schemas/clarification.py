@@ -2,8 +2,10 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from schemas._base import InputModel
 
-class ClarificationCreate(BaseModel):
+
+class ClarificationCreate(InputModel):
     case_id: int = Field(gt=0)
     statement: str = Field(min_length=10, max_length=5000)
 

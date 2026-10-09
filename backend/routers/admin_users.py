@@ -195,6 +195,8 @@ def admin_create_user(
         student_roll=body.student_roll,
         actor_id=current_user.id,
         is_active=bool(body.is_active),
+        department=body.department,
+        program=body.program,
     )
     db.commit()
     db.refresh(user)
@@ -273,6 +275,23 @@ def admin_patch_user(
                 target_user_id=user.id,
                 description=f"Linked {user.email} to student roll {roll}",
             )
+
+    if body.department is not None or body.program is not None:
+        if user.role != "STUDENT":
+            raise HTTPException(
+                status_code=400,
+                detail="Department and program can only be set for STUDENT accounts",
+            )
+        linked_student = student_for_user(db, user.id)
+        if linked_student is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Link a student roll before setting department or program",
+            )
+        if body.department is not None:
+            linked_student.department = body.department.strip()
+        if body.program is not None:
+            linked_student.program = body.program.strip()
 
     db.commit()
     db.refresh(user)

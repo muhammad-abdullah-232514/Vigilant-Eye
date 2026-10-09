@@ -116,7 +116,8 @@ Verified by `workflow.py` + `tests/test_ufm_lifecycle_phase26.py` + `test_workfl
 
 ```
 PENDING → (HOD open optional) UNDER_REVIEW → DEC_REVIEW → EXAM_DEPARTMENT_REVIEW
-  → UFM_COMMITTEE_REVIEW → APPROVED | REJECTED
+  → UFM_COMMITTEE_REVIEW → EXAM_DEPARTMENT_IMPLEMENTATION → APPROVED
+  (Committee REJECT → REJECTED)
 RETURN (allowed roles/statuses) → PENDING
 ```
 
@@ -543,4 +544,3 @@ Not unconditional “READY FOR UNIVERSITY DELIVERY” because:
 2. **Full Google-account browser E2E** for all roles remains an operational step outside this environment (temporary `both` used only for acceptance probing).
 
 For the implemented non-AI portal scope, with EMAIL_MOCK as the supported non-SMTP path and responsive/a11y gates closed, the system remains delivery-capable under these documented limitations.
-

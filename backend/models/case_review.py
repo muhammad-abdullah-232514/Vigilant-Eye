@@ -15,6 +15,7 @@ class CaseReview(Base):
     reviewer_role: Mapped[str] = mapped_column(String(50))
     action: Mapped[str] = mapped_column(String(50))
     remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recommended_penalties: Mapped[str | None] = mapped_column(Text, nullable=True)
     signer_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
     signed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     signature_ack: Mapped[bool] = mapped_column(Boolean, default=False)

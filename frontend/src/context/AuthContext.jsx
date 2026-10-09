@@ -4,11 +4,16 @@ import {
   googleLoginRequest,
   loginRequest,
 } from "../services/api";
+import {
+  clearAuthSession,
+  getAuthToken,
+  getAuthUser,
+  removeLegacyAuthSession,
+  setAuthToken,
+  setAuthUser,
+} from "../utils/authStorage";
 
 const AuthContext = createContext(null);
-
-const TOKEN_KEY = "ve_token";
-const USER_KEY = "ve_user";
 
 /** Roles are DB uppercase strings; normalize so nav never misses ADMINISTRATOR. */
 function normalizeUser(raw) {
@@ -18,18 +23,20 @@ function normalizeUser(raw) {
 }
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY));
-  const [user, setUser] = useState(() => {
-    const raw = localStorage.getItem(USER_KEY);
-    if (!raw) return null;
-    try {
-      return normalizeUser(JSON.parse(raw));
-    } catch {
-      return null;
-    }
+  const [token, setToken] = useState(() => {
+    removeLegacyAuthSession();
+    return getAuthToken();
   });
+  const [user, setUser] = useState(() => normalizeUser(getAuthUser()));
   const [loading, setLoading] = useState(Boolean(token));
   const [error, setError] = useState("");
+
+  const refreshUser = useCallback(async () => {
+    const me = normalizeUser(await fetchCurrentUser());
+    setUser(me);
+    setAuthUser(me);
+    return me;
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,12 +50,11 @@ export function AuthProvider({ children }) {
         const me = normalizeUser(await fetchCurrentUser());
         if (!cancelled) {
           setUser(me);
-          localStorage.setItem(USER_KEY, JSON.stringify(me));
+          setAuthUser(me);
         }
       } catch {
         if (!cancelled) {
-          localStorage.removeItem(TOKEN_KEY);
-          localStorage.removeItem(USER_KEY);
+          clearAuthSession();
           setToken(null);
           setUser(null);
         }
@@ -65,8 +71,8 @@ export function AuthProvider({ children }) {
 
   const applySession = useCallback((data) => {
     const nextUser = normalizeUser(data.user);
-    localStorage.setItem(TOKEN_KEY, data.access_token);
-    localStorage.setItem(USER_KEY, JSON.stringify(nextUser));
+    setAuthToken(data.access_token);
+    setAuthUser(nextUser);
     setToken(data.access_token);
     setUser(nextUser);
     return nextUser;
@@ -91,8 +97,7 @@ export function AuthProvider({ children }) {
   );
 
   function logout() {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
+    clearAuthSession();
     setToken(null);
     setUser(null);
   }
@@ -104,12 +109,13 @@ export function AuthProvider({ children }) {
       loading,
       error,
       setError,
+      refreshUser,
       login,
       loginWithGoogle,
       logout,
       isAuthenticated: Boolean(token && user),
     }),
-    [token, user, loading, error, login, loginWithGoogle]
+    [token, user, loading, error, refreshUser, login, loginWithGoogle]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

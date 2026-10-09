@@ -18,6 +18,7 @@ Speed notes:
 from __future__ import annotations
 
 import os
+import logging
 import sys
 import threading
 import time
@@ -55,6 +56,8 @@ from posture_analysis import (  # noqa: E402
 from suspicion_score import SuspicionEngine  # noqa: E402
 from ufm_classes import display_name, resolve_weights  # noqa: E402
 from capture_source import CaptureError, classify_source, open_capture  # noqa: E402
+
+logger = logging.getLogger("vigilanteye.live_stream")
 
 LIVE_POSTURE = os.getenv("LIVE_POSTURE", "1").strip().lower() not in {
     "0",
@@ -240,7 +243,7 @@ class CameraSession:
     detect: bool = False
     persist: bool = False
     conf: float = 0.28
-    min_frames: int = 3
+    min_frames: int = 1
     persist_cooldown_sec: float = 90.0
     stop_event: threading.Event = field(default_factory=threading.Event)
     thread: threading.Thread | None = None
@@ -251,6 +254,7 @@ class CameraSession:
     pending_persists: list[PendingPersist] = field(default_factory=list)
     frame_index: int = 0
     error: str | None = None
+    error_kind: str | None = None
     model_error: str | None = None
     running: bool = False
     weights_mode: str = "coco"
@@ -319,6 +323,7 @@ class LiveStreamManager:
                         ),
                         "frame_index": s.frame_index,
                         "error": s.error,
+                        "error_kind": s.error_kind,
                         "persist_error": s.persist_error,
                         "last_persist_ok": s.last_persist_ok,
                         "pending_persists": len(s.pending_persists),
@@ -366,7 +371,7 @@ class LiveStreamManager:
         detect: bool = True,
         persist: bool = True,
         conf: float = 0.25,
-        min_frames: int = 3,
+        min_frames: int = 1,
         source_override: str | None = None,
         is_demo: bool = False,
         room_label: str = "",
@@ -556,6 +561,7 @@ class LiveStreamManager:
                 opened = open_capture(session.stream_url)
             except CaptureError as exc:
                 session.error = str(exc)
+                session.error_kind = getattr(exc, "category", "CAMERA_ERROR")
                 session.running = False
                 print(f"[live] camera {session.camera_code}: {exc}")
                 return
@@ -567,6 +573,7 @@ class LiveStreamManager:
             session.running = True
             # Keep model_error; only clear camera open errors
             session.error = None
+            session.error_kind = None
             # Retry any durable pending saves restored after crash
             if session.persist and session.pending_persists:
                 self._retry_pending_persists(session)
@@ -593,15 +600,18 @@ class LiveStreamManager:
                     # Network cameras drop: reconnect after ~2 s of failed reads
                     if is_live_net and read_failures >= 100:
                         session.error = "Stream interrupted — reconnecting…"
+                        session.error_kind = "CAMERA_ERROR"
                         cap.release()
                         while not session.stop_event.is_set():
                             try:
                                 opened = open_capture(session.stream_url)
                                 cap, pending_frame = opened.cap, opened.first_frame
                                 session.error = None
+                                session.error_kind = None
                                 break
                             except CaptureError as exc:
                                 session.error = f"{exc} Retrying…"
+                                session.error_kind = getattr(exc, "category", "CAMERA_ERROR")
                                 session.stop_event.wait(5.0)
                         read_failures = 0
                     time.sleep(0.02)
@@ -992,7 +1002,7 @@ class LiveStreamManager:
         Prefer custom only for smart_watch (COCO has no watch class).
         """
         protected = {"mobile_phone", "electronic_gadget"}
-        allowed_custom = {"smart_watch", "suspicious_object"}
+        allowed_custom = {"smart_watch", "notes_paper", "suspicious_object"}
         merged = list(primary)
         primary_cats = {
             (e.get("category") or e.get("raw_label")) for e in primary if e.get("category")
@@ -1232,26 +1242,33 @@ class LiveStreamManager:
                 # Head turns are review-only by design but still notify the invigilator.
                 if confirmed or det_type == "looking_away":
                     notify_detection_alert(db, row, is_demo=bool(session.is_demo))
-                if annotated_frame is not None:
-                    created = create_detection_evidence(
-                        db,
-                        detection_id=int(row.id),
-                        camera_id=session.camera_pk,
-                        confidence=confidence,
-                        frame_bgr=annotated_frame,
-                        clip_frames=clip_frames if confirmed else None,
-                        case_id=None,
-                    )
-                    for ev in created or []:
-                        try:
-                            ev.is_demo = bool(session.is_demo)
-                        except Exception:  # noqa: BLE001
-                            pass
+                detection_id = int(row.id)
                 db.commit()
+
+                if annotated_frame is not None:
+                    try:
+                        created = create_detection_evidence(
+                            db,
+                            detection_id=detection_id,
+                            camera_id=session.camera_pk,
+                            confidence=confidence,
+                            frame_bgr=annotated_frame,
+                            clip_frames=clip_frames if confirmed else None,
+                            case_id=None,
+                        )
+                        for ev in created or []:
+                            ev.is_demo = bool(session.is_demo)
+                        db.commit()
+                    except Exception:
+                        db.rollback()
+                        logger.exception(
+                            "DETECTION_EVIDENCE_SAVE_FAILED detection_id=%s",
+                            detection_id,
+                        )
                 with session.lock:
                     session.last_persist_ok = True
                     session.persist_error = None
-                return int(row.id)
+                return detection_id
             finally:
                 db.close()
         except Exception as exc:  # noqa: BLE001

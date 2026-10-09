@@ -3,6 +3,7 @@ import json
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from schemas._base import InputModel
 from schemas.exam import ExamCreate
 from schemas.student import StudentCreate
 from schemas.result_control import ResultControlCaseSummary
@@ -14,7 +15,7 @@ from ufm_form_constants import (
 _ALLOWED_RECOVERED = frozenset(RECOVERED_MATERIAL_CODES)
 
 
-class UfmCaseCreate(BaseModel):
+class UfmCaseCreate(InputModel):
     """JSON body the client sends when creating a UFM case.
 
     Provide either an existing student_id or filing-time manual_student
@@ -23,20 +24,18 @@ class UfmCaseCreate(BaseModel):
     they do not grant Invigilator general master-data APIs.
 
     created_at / updated_at are server-assigned and must not be accepted
-    from the client (extra fields are ignored).
+    from the client (extra fields are ignored — see InputModel).
     """
-
-    model_config = {"extra": "ignore"}
 
     student_id: int | None = Field(default=None, gt=0)
     exam_id: int | None = Field(default=None, gt=0)
     manual_student: StudentCreate | None = None
     manual_exam: ExamCreate | None = None
     violation_type: str = Field(min_length=1, max_length=100)
-    description: str = Field(min_length=1)
-    remarks: str | None = None
+    description: str = Field(min_length=1, max_length=5000)
+    remarks: str | None = Field(default=None, max_length=5000)
     recovered_materials: list[str] | None = None
-    recovered_other_detail: str | None = None
+    recovered_other_detail: str | None = Field(default=None, max_length=2000)
     detection_id: int | None = None
     camera_id: int | None = Field(default=None, gt=0)
     evidence_ids: list[int] | None = Field(default=None, max_length=25)
@@ -145,12 +144,15 @@ class UfmCaseOut(BaseModel):
     exam_course_name: str | None = None
     exam_semester: str | None = None
     exam_date: str | None = None
+    exam_start_time: str | None = None
+    exam_end_time: str | None = None
     room_number: str | None = None
     room_building: str | None = None
     camera_id: int | None = None
     camera_code: str | None = None
     camera_name: str | None = None
     reporter_name: str | None = None
+    reporter_email: str | None = None
     reporter_role: str | None = None
     result_control: ResultControlCaseSummary | None = None
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 from dataclasses import dataclass
+from urllib.parse import urljoin
 
 
 APP_NAME = "VigilantEye"
@@ -16,9 +17,15 @@ class EmailContent:
     html: str
 
 
-def _portal_url(portal_base_url: str | None) -> str | None:
+def _portal_url(
+    portal_base_url: str | None, portal_path: str | None = None
+) -> str | None:
     base = (portal_base_url or "").strip().rstrip("/")
-    return base or None
+    if not base:
+        return None
+    if portal_path:
+        return urljoin(f"{base}/", portal_path.lstrip("/"))
+    return base
 
 
 def build_notification_email(
@@ -28,6 +35,7 @@ def build_notification_email(
     case_id: int | None = None,
     notification_type: str | None = None,
     portal_base_url: str | None = None,
+    portal_path: str | None = None,
 ) -> EmailContent:
     """
     Build escaped HTML + plain-text content.
@@ -43,7 +51,7 @@ def build_notification_email(
 
     subject = f"{APP_NAME}: {safe_title}"
 
-    portal = _portal_url(portal_base_url)
+    portal = _portal_url(portal_base_url, portal_path)
     lines = [
         f"{APP_NAME} notification",
         "",

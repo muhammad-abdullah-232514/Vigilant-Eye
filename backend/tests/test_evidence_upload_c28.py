@@ -148,6 +148,7 @@ def client_db():
         "users": users,
         "case": case,
         "evidence": existing,
+        "db": db,
     }
     app.dependency_overrides.clear()
     db.close()
@@ -178,7 +179,7 @@ def test_upload_roles_invigilator_only():
     assert '"INVIGILATOR"' in upload
     assert '"HOD"' not in upload
     assert '"HOD"' in view
-    assert '"DEC"' in view
+    assert '"DEC"' not in view
 
 
 def test_invigilator_can_upload_evidence(client_db):
@@ -193,6 +194,58 @@ def test_invigilator_can_upload_evidence(client_db):
     )
     assert r.status_code == 201, r.text
     assert r.json()["case_id"] == client_db["case"].id
+
+
+def test_invigilator_can_attach_library_evidence_to_owned_case(client_db):
+    db = client_db["db"]
+    library_row = Evidence(
+        case_id=None,
+        detection_id=None,
+        evidence_type="SNAPSHOT",
+        file_path="uploads/evidence/c28-library.webp",
+        camera_id=None,
+        uploaded_by=client_db["users"]["INVIGILATOR"].id,
+    )
+    db.add(library_row)
+    db.commit()
+    db.refresh(library_row)
+
+    c = client_db["client"]
+    h = _h(client_db["token"](client_db["users"]["INVIGILATOR"]))
+    response = c.post(
+        f"/ufm-cases/{client_db['case'].id}/evidence",
+        headers=h,
+        json={"evidence_ids": [library_row.id]},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()[0]["id"] == library_row.id
+    db.refresh(library_row)
+    assert library_row.case_id == client_db["case"].id
+
+
+def test_only_invigilators_can_attach_library_evidence(client_db):
+    db = client_db["db"]
+    library_row = Evidence(
+        case_id=None,
+        detection_id=None,
+        evidence_type="DOCUMENT",
+        file_path="uploads/evidence/c28-library.txt",
+        camera_id=None,
+    )
+    db.add(library_row)
+    db.commit()
+    db.refresh(library_row)
+
+    c = client_db["client"]
+    for role in ("HOD", "DEC", "EXAM_DEPARTMENT", "UFM_COMMITTEE"):
+        h = _h(client_db["token"](client_db["users"][role]))
+        response = c.post(
+            f"/ufm-cases/{client_db['case'].id}/evidence",
+            headers=h,
+            json={"evidence_ids": [library_row.id]},
+        )
+        assert response.status_code == 403, f"{role}: {response.text}"
 
 
 def test_non_creators_cannot_upload_evidence(client_db):
@@ -256,6 +309,10 @@ def test_evidence_page_upload_gated_to_upload_roles():
     assert "canUpload" in src
     assert "Upload evidence" in src
     assert "Invigilator accounts" in src
+    assert "Choose from Evidence Library" in src
+    assert "EvidenceLibraryPicker" in src
+    assert "Seat (optional)" not in src
+    assert "System confidence (optional)" not in src
     detail = (FE / "pages" / "CaseDetailPage.jsx").read_text(encoding="utf-8")
     assert "View evidence" in detail
     assert "canUploadEvidence" in detail

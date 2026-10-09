@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import EvidenceFileActions from "../components/EvidenceFileActions";
+import EvidenceLibraryPicker from "../components/EvidenceLibraryPicker";
 import PageHeader from "../components/PageHeader";
 import EmptyState from "../components/EmptyState";
 import ErrorBanner from "../components/ErrorBanner";
 import LoadingState from "../components/LoadingState";
 import {
-  evidenceHasAiSignal,
   evidenceSourceLabel,
   fileNameFromPath,
   formatEvidenceTypeLabel,
@@ -21,6 +21,7 @@ import { useAuth } from "../context/AuthContext";
 import {
   fetchCases,
   fetchEvidence,
+  linkEvidenceToCase,
   loadEvidenceObjectUrl,
   uploadEvidence,
 } from "../services/api";
@@ -33,6 +34,7 @@ export default function EvidencePage() {
   const canUpload = roleIn(user?.role, EVIDENCE_UPLOAD_ROLES);
   const [searchParams, setSearchParams] = useSearchParams();
   const presetCaseId = searchParams.get("case_id") || "";
+  const presetDetectionId = searchParams.get("detection_id") || "";
 
   const [items, setItems] = useState([]);
   const [cases, setCases] = useState([]);
@@ -40,14 +42,15 @@ export default function EvidencePage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [libraryPickerOpen, setLibraryPickerOpen] = useState(false);
+  const [libraryEvidence, setLibraryEvidence] = useState([]);
   const [typeFilter, setTypeFilter] = useState("");
   const [selectedId, setSelectedId] = useState(null);
   const [preview, setPreview] = useState(null); // { url, mime, filename } | null | 'loading' | 'unsupported'
+  const previewRef = useRef(null);
   const [form, setForm] = useState({
     case_id: presetCaseId,
     evidence_type: "SNAPSHOT",
-    seat_location: "",
-    confidence: "",
     file: null,
   });
 
@@ -68,10 +71,11 @@ export default function EvidencePage() {
     setError("");
     try {
       const [evidence, caseList] = await Promise.all([
-        fetchEvidence(presetCaseId || null),
+        fetchEvidence(presetCaseId || null, presetDetectionId || null),
         fetchCases(),
       ]);
-      setItems(Array.isArray(evidence) ? evidence : []);
+      const evidenceRows = Array.isArray(evidence) ? evidence : [];
+      setItems(evidenceRows);
       setCases(Array.isArray(caseList) ? caseList : []);
       setForm((prev) => ({
         ...prev,
@@ -80,6 +84,9 @@ export default function EvidencePage() {
           presetCaseId ||
           (caseList?.[0]?.id ? String(caseList[0].id) : ""),
       }));
+      if (presetDetectionId && evidenceRows.length > 0) {
+        await showPreview(evidenceRows[0].id);
+      }
     } catch {
       setError("Unable to load evidence. Please try again.");
       setItems([]);
@@ -94,13 +101,19 @@ export default function EvidencePage() {
       return;
     }
     load();
-  }, [presetCaseId, canView]);
+  }, [presetCaseId, presetDetectionId, canView]);
 
   useEffect(() => {
     return () => {
       if (preview?.url) URL.revokeObjectURL(preview.url);
     };
   }, [preview]);
+
+  useEffect(() => {
+    if (selectedId != null && previewRef.current) {
+      previewRef.current.scrollIntoView({ behavior: "auto", block: "start" });
+    }
+  }, [selectedId]);
 
   const typeOptions = useMemo(() => {
     const set = new Set(items.map((e) => e.evidence_type).filter(Boolean));
@@ -154,8 +167,8 @@ export default function EvidencePage() {
       setError("Your role is not authorized to upload evidence.");
       return;
     }
-    if (!form.file) {
-      setError("Choose a file to upload.");
+    if (!form.file && libraryEvidence.length === 0) {
+      setError("Choose a file from your device or select evidence from the library.");
       return;
     }
     if (!form.case_id) {
@@ -164,25 +177,28 @@ export default function EvidencePage() {
     }
     setSubmitting(true);
     try {
-      const body = new FormData();
-      body.append("case_id", form.case_id);
-      body.append("evidence_type", form.evidence_type);
-      body.append("file", form.file);
-      if (form.seat_location.trim()) {
-        body.append("seat_location", form.seat_location.trim());
+      if (libraryEvidence.length > 0) {
+        await linkEvidenceToCase(
+          Number(form.case_id),
+          libraryEvidence.map((evidence) => evidence.id)
+        );
+        setMessage(
+          `${libraryEvidence.length} evidence record${libraryEvidence.length === 1 ? "" : "s"} attached to ${caseLabel(Number(form.case_id))}.`
+        );
+        setLibraryEvidence([]);
+      } else {
+        const body = new FormData();
+        body.append("case_id", form.case_id);
+        body.append("evidence_type", form.evidence_type);
+        body.append("file", form.file);
+        await uploadEvidence(body);
+        setMessage(
+          `Evidence uploaded successfully for ${caseLabel(Number(form.case_id))}.`
+        );
       }
-      if (form.confidence !== "") {
-        body.append("confidence", form.confidence);
-      }
-      await uploadEvidence(body);
-      setMessage(
-        `Evidence uploaded successfully for ${caseLabel(Number(form.case_id))}.`
-      );
       setForm((prev) => ({
         ...prev,
         file: null,
-        seat_location: "",
-        confidence: "",
       }));
       const fileInput = document.getElementById("evidence-file-input");
       if (fileInput) fileInput.value = "";
@@ -216,10 +232,16 @@ export default function EvidencePage() {
   return (
     <div className="mx-auto w-full max-w-7xl space-y-5">
       <PageHeader
-        breadcrumb="Home / Cases / Evidence"
+        breadcrumb={
+          presetDetectionId
+            ? "Home / Detections / Evidence"
+            : "Home / Cases / Evidence"
+        }
         title="Evidence Library"
         description={
-          presetCase
+          presetDetectionId
+            ? `Evidence captured for detection #${presetDetectionId}.`
+            : presetCase
             ? `Evidence associated with UFM case ${presetCase.case_number}.`
             : "Case-linked files used in UFM review. Each record belongs to a specific case."
         }
@@ -312,6 +334,7 @@ export default function EvidencePage() {
                 Evidence type
               </span>
               <select
+                required
                 value={form.evidence_type}
                 onChange={(e) =>
                   setForm((p) => ({ ...p, evidence_type: e.target.value }))
@@ -325,41 +348,10 @@ export default function EvidencePage() {
                 ))}
               </select>
             </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium text-slate-700">
-                Seat (optional)
-              </span>
-              <input
-                value={form.seat_location}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, seat_location: e.target.value }))
-                }
-                className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2.5"
-                placeholder="A12"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium text-slate-700">
-                System confidence (optional)
-              </span>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                max="1"
-                value={form.confidence}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, confidence: e.target.value }))
-                }
-                className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2.5"
-                placeholder="0.91"
-              />
-              <span className="mt-1 block text-[11px] text-slate-500">
-                Optional system-assisted value only — not a disciplinary finding.
-              </span>
-            </label>
             <div className="block text-sm sm:col-span-2">
-              <span className="mb-1 block font-medium text-slate-700">File</span>
+              <span className="mb-1 block font-medium text-slate-700">
+                Evidence file
+              </span>
               <label
                 htmlFor="evidence-file-input"
                 className="btn-secondary flex w-full cursor-pointer justify-start gap-2 overflow-hidden"
@@ -367,14 +359,20 @@ export default function EvidencePage() {
                 <input
                   id="evidence-file-input"
                   type="file"
-                  required
                   className="sr-only"
-                  onChange={(e) =>
-                    setForm((p) => ({
-                      ...p,
-                      file: e.target.files?.[0] || null,
-                    }))
-                  }
+                  accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.mp4,.mov,.avi,.webm,.mkv,.pdf,.txt,.csv,.doc,.docx"
+                  onChange={(e) => {
+                    const picked = e.target.files?.[0] || null;
+                    if (picked && picked.size > 50 * 1024 * 1024) {
+                      setError("File is too large. Maximum size is 50 MB.");
+                      e.target.value = "";
+                      setForm((p) => ({ ...p, file: null }));
+                      return;
+                    }
+                    setError("");
+                    setLibraryEvidence([]);
+                    setForm((p) => ({ ...p, file: picked }));
+                  }}
                 />
                 <span className="shrink-0 rounded bg-sky-100 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-au-navy">
                   Choose file
@@ -395,14 +393,63 @@ export default function EvidencePage() {
                   No file selected.
                 </span>
               )}
+              <button
+                type="button"
+                onClick={() => setLibraryPickerOpen(true)}
+                className="mt-3 text-sm font-semibold text-au-blue hover:underline"
+              >
+                Choose from Evidence Library
+              </button>
+              {libraryEvidence.length > 0 ? (
+                <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <p className="mb-2 text-xs font-semibold text-slate-700">
+                    Selected from Evidence Library ({libraryEvidence.length})
+                  </p>
+                  <ul className="space-y-1">
+                    {libraryEvidence.map((evidence) => (
+                      <li
+                        key={evidence.id}
+                        className="flex items-center justify-between gap-2 text-xs text-slate-600"
+                      >
+                        <span className="min-w-0 truncate">
+                          #{evidence.id} · {evidence.evidence_type} ·{" "}
+                          {fileNameFromPath(evidence.file_path) || "Evidence file"}
+                        </span>
+                        <button
+                          type="button"
+                          className="shrink-0 font-semibold text-rose-700 hover:underline"
+                          onClick={() =>
+                            setLibraryEvidence((current) =>
+                              current.filter((item) => item.id !== evidence.id)
+                            )
+                          }
+                          aria-label={`Remove evidence ${evidence.id}`}
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
           </div>
           <button
             type="submit"
-            disabled={submitting || !cases.length}
+            disabled={
+              submitting ||
+              !cases.length ||
+              (!form.file && libraryEvidence.length === 0)
+            }
             className="btn-primary"
           >
-            {submitting ? "Uploading…" : "Upload evidence"}
+            {submitting
+              ? libraryEvidence.length
+                ? "Attaching…"
+                : "Uploading…"
+              : libraryEvidence.length
+                ? "Attach evidence"
+                : "Upload evidence"}
           </button>
         </form>
       ) : (
@@ -412,8 +459,174 @@ export default function EvidencePage() {
         </div>
       )}
 
-      <div className="portal-split">
+      <div>
         <section className="portal-card overflow-hidden">
+          {selected && preview ? (
+            <div
+              ref={previewRef}
+              className="border-b border-slate-100 p-4"
+            >
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <h2 className="font-semibold text-au-navy">
+                  Preview · Evidence #{selected.id}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (preview?.url) URL.revokeObjectURL(preview.url);
+                    setPreview(null);
+                    setSelectedId(null);
+                  }}
+                  className="text-sm font-medium text-slate-600 hover:underline"
+                  aria-label="Close evidence preview"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="grid gap-4 md:grid-cols-[minmax(0,1.5fr)_minmax(16rem,1fr)]">
+                <div className="flex min-h-64 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                  {preview === "loading" ? (
+                    <p className="px-3 py-8 text-center text-sm text-slate-500">
+                      Loading preview…
+                    </p>
+                  ) : preview === "unsupported" ? (
+                    <p className="px-3 py-6 text-center text-sm text-slate-600">
+                      In-browser preview is not available for this file type.
+                      Use Open or Download.
+                    </p>
+                  ) : preview?.mime?.startsWith("image/") ? (
+                    <img
+                      src={preview.url}
+                      alt={`Evidence #${selected.id}`}
+                      className="max-h-72 w-full object-contain"
+                    />
+                  ) : preview?.mime?.startsWith("video/") ? (
+                    <video
+                      src={preview.url}
+                      controls
+                      className="max-h-72 w-full bg-black"
+                    />
+                  ) : preview?.mime === "application/pdf" ? (
+                    <iframe
+                      title={`Evidence #${selected.id}`}
+                      src={preview.url}
+                      className="h-72 w-full"
+                    />
+                  ) : (
+                    <p className="px-3 py-6 text-center text-sm text-slate-500">
+                      No preview loaded.
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-3 text-sm">
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
+                    <div>
+                      <dt className="text-xs uppercase tracking-wide text-slate-500">
+                        Evidence ID
+                      </dt>
+                      <dd className="font-medium">#{selected.id}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs uppercase tracking-wide text-slate-500">
+                        Case
+                      </dt>
+                      <dd className="font-medium">
+                        {selected.case_id != null ? (
+                          <Link
+                            to={`/app/cases/${selected.case_id}`}
+                            className="text-au-blue hover:underline"
+                          >
+                            {caseLabel(selected.case_id)}
+                          </Link>
+                        ) : (
+                          "—"
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs uppercase tracking-wide text-slate-500">
+                        Type
+                      </dt>
+                      <dd>{formatEvidenceTypeLabel(selected.evidence_type)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs uppercase tracking-wide text-slate-500">
+                        Uploaded by
+                      </dt>
+                      <dd className="text-slate-700">
+                        {selected.uploaded_by != null
+                          ? `User #${selected.uploaded_by}`
+                          : "—"}
+                      </dd>
+                    </div>
+                    <div className="col-span-2">
+                      <dt className="text-xs uppercase tracking-wide text-slate-500">
+                        Source
+                      </dt>
+                      <dd className="break-words text-slate-700">
+                        {evidenceSourceLabel(selected)}
+                      </dd>
+                    </div>
+                    <div className="col-span-2">
+                      <dt className="text-xs uppercase tracking-wide text-slate-500">
+                        File name
+                      </dt>
+                      <dd className="break-all text-slate-700">
+                        {fileNameFromPath(selected.file_path) || "—"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs uppercase tracking-wide text-slate-500">
+                        Captured
+                      </dt>
+                      <dd className="text-slate-700">
+                        {selected.timestamp
+                          ? new Date(selected.timestamp).toLocaleString()
+                          : "—"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs uppercase tracking-wide text-slate-500">
+                        Uploaded
+                      </dt>
+                      <dd className="text-slate-700">
+                        {selected.created_at
+                          ? new Date(selected.created_at).toLocaleString()
+                          : "—"}
+                      </dd>
+                    </div>
+                    {selected.seat_location ? (
+                      <div className="col-span-2">
+                        <dt className="text-xs uppercase tracking-wide text-slate-500">
+                          Seat
+                        </dt>
+                        <dd>{selected.seat_location}</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                  <EvidenceFileActions
+                    evidenceId={selected.id}
+                    onError={(msg) => setError(msg)}
+                  />
+                </div>
+                {canUpload ? (
+                  <EvidenceLibraryPicker
+                    open={libraryPickerOpen}
+                    onClose={() => setLibraryPickerOpen(false)}
+                    selectedIds={libraryEvidence.map((evidence) => evidence.id)}
+                    onApply={(rows) => {
+                      setLibraryEvidence(rows);
+                      if (rows.length > 0) {
+                        setForm((current) => ({ ...current, file: null }));
+                        const fileInput = document.getElementById("evidence-file-input");
+                        if (fileInput) fileInput.value = "";
+                      }
+                    }}
+                  />
+                ) : null}
+              </div>
+            </div>
+          ) : null}
           <div className="border-b border-slate-100 px-5 py-3">
             <h2 className="font-semibold text-au-navy">Evidence records</h2>
             <p className="mt-0.5 text-xs text-slate-500">
@@ -437,7 +650,9 @@ export default function EvidencePage() {
             <div className="px-6 py-10 text-center">
               <p className="font-semibold text-au-navy">No evidence to show</p>
               <p className="mt-1 text-sm text-slate-600">
-                {presetCaseId
+                {presetDetectionId
+                  ? `No evidence is available for detection #${presetDetectionId}.`
+                  : presetCaseId
                   ? "No evidence is attached to this UFM case yet."
                   : typeFilter
                     ? "No evidence matches this type filter."
@@ -488,6 +703,7 @@ export default function EvidencePage() {
                         <EvidenceFileActions
                           evidenceId={e.id}
                           showPreview
+                          activePreview={active}
                           onPreview={showPreview}
                           onError={(msg) => setError(msg)}
                         />
@@ -543,6 +759,7 @@ export default function EvidencePage() {
                             <EvidenceFileActions
                               evidenceId={e.id}
                               showPreview
+                              activePreview={active}
                               onPreview={showPreview}
                               onError={(msg) => setError(msg)}
                             />
@@ -556,156 +773,6 @@ export default function EvidencePage() {
             </>
           )}
         </section>
-
-        <aside className="portal-card portal-split-detail h-fit p-4">
-          <h2 className="font-semibold text-au-navy">Evidence detail</h2>
-          {!selected ? (
-            <p className="mt-3 text-sm text-slate-500">
-              Select Preview on a record to inspect metadata and an in-browser
-              preview when the file type is supported.
-            </p>
-          ) : (
-            <div className="mt-3 space-y-3 text-sm">
-              <dl className="grid gap-2">
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-500">
-                    Evidence ID
-                  </dt>
-                  <dd className="font-medium">#{selected.id}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-500">
-                    Case
-                  </dt>
-                  <dd className="font-medium">
-                    {selected.case_id != null ? (
-                      <Link
-                        to={`/app/cases/${selected.case_id}`}
-                        className="text-au-blue hover:underline"
-                      >
-                        {caseLabel(selected.case_id)}
-                      </Link>
-                    ) : (
-                      "—"
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-500">
-                    Type
-                  </dt>
-                  <dd>{formatEvidenceTypeLabel(selected.evidence_type)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-500">
-                    Source
-                  </dt>
-                  <dd className="text-slate-700 cell-wrap">
-                    {evidenceSourceLabel(selected)}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-500">
-                    File name
-                  </dt>
-                  <dd className="break-all text-slate-700">
-                    {fileNameFromPath(selected.file_path) || "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-500">
-                    Captured
-                  </dt>
-                  <dd className="text-slate-700">
-                    {selected.timestamp
-                      ? new Date(selected.timestamp).toLocaleString()
-                      : "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-500">
-                    Uploaded
-                  </dt>
-                  <dd className="text-slate-700">
-                    {selected.created_at
-                      ? new Date(selected.created_at).toLocaleString()
-                      : "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-500">
-                    Uploaded by
-                  </dt>
-                  <dd className="text-slate-700">
-                    {selected.uploaded_by != null
-                      ? `User #${selected.uploaded_by}`
-                      : "—"}
-                  </dd>
-                </div>
-                {selected.seat_location ? (
-                  <div>
-                    <dt className="text-xs uppercase tracking-wide text-slate-500">
-                      Seat
-                    </dt>
-                    <dd>{selected.seat_location}</dd>
-                  </div>
-                ) : null}
-              </dl>
-
-              {evidenceHasAiSignal(selected) ? (
-                <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900">
-                  <p className="font-semibold">
-                    System-assisted / AI-generated information
-                  </p>
-                  <p className="mt-1">
-                    Detection links and confidence values are review aids only.
-                    They are not a final finding of misconduct.
-                  </p>
-                </div>
-              ) : null}
-
-              <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-                {preview === "loading" ? (
-                  <p className="px-3 py-8 text-center text-xs text-slate-500">
-                    Loading preview…
-                  </p>
-                ) : preview === "unsupported" ? (
-                  <p className="px-3 py-6 text-center text-xs text-slate-600">
-                    In-browser preview is not available for this file type. Use
-                    Open or Download.
-                  </p>
-                ) : preview?.mime?.startsWith("image/") ? (
-                  <img
-                    src={preview.url}
-                    alt={`Evidence #${selected.id}`}
-                    className="max-h-56 w-full object-contain"
-                  />
-                ) : preview?.mime?.startsWith("video/") ? (
-                  <video
-                    src={preview.url}
-                    controls
-                    className="max-h-56 w-full bg-black"
-                  />
-                ) : preview?.mime === "application/pdf" ? (
-                  <iframe
-                    title={`Evidence #${selected.id}`}
-                    src={preview.url}
-                    className="h-56 w-full"
-                  />
-                ) : (
-                  <p className="px-3 py-6 text-center text-xs text-slate-500">
-                    No preview loaded.
-                  </p>
-                )}
-              </div>
-
-              <EvidenceFileActions
-                evidenceId={selected.id}
-                onError={(msg) => setError(msg)}
-              />
-            </div>
-          )}
-        </aside>
       </div>
     </div>
   );

@@ -23,6 +23,7 @@ export const STATUS_LABELS = {
   UNDER_REVIEW: "Under Review",
   DEC_REVIEW: "DEC Review",
   EXAM_DEPARTMENT_REVIEW: "Exam Department Review",
+  EXAM_DEPARTMENT_IMPLEMENTATION: "Exam Department Implementation",
   UFM_COMMITTEE_REVIEW: "UFM Committee Review",
   APPROVED: "Approved",
   REJECTED: "Rejected",
@@ -45,6 +46,7 @@ export const REVIEW_ACTION_LABELS = {
   RETURN: "Return",
   APPROVE: "Approve",
   REJECT: "Reject",
+  IMPLEMENT: "Record Implementation",
 };
 
 /** Role currently expected to act, based on case status (presentation only). */
@@ -53,6 +55,7 @@ export const RESPONSIBLE_BY_STATUS = {
   UNDER_REVIEW: "HOD",
   DEC_REVIEW: "DEC",
   EXAM_DEPARTMENT_REVIEW: "EXAM_DEPARTMENT",
+  EXAM_DEPARTMENT_IMPLEMENTATION: "EXAM_DEPARTMENT",
   UFM_COMMITTEE_REVIEW: "UFM_COMMITTEE",
 };
 
@@ -74,6 +77,19 @@ export function formatReviewActionLabel(action) {
 export function formatViolationLabel(type) {
   if (!type) return "—";
   return String(type).replaceAll("_", " ");
+}
+
+export function violationTone(type = "") {
+  const value = String(type).toLowerCase();
+  if (value.includes("phone")) return "rose";
+  if (value.includes("watch")) return "amber";
+  if (value.includes("note") || value.includes("paper")) return "violet";
+  if (value.includes("gadget")) return "emerald";
+  return "blue";
+}
+
+export function violationLabelClass(type) {
+  return `violation-label violation-label-${violationTone(type)}`;
 }
 
 export function formatRoleLabel(role) {
@@ -135,7 +151,51 @@ export function reviewActorLabel(review) {
 
 export function formatAuditActionLabel(action) {
   if (!action) return "—";
-  return String(action).replaceAll("_", " ");
+  const labels = {
+    CASE_REVIEW_FORWARD: "Case Forwarded",
+    CASE_REVIEW_APPROVE: "Committee Approved",
+    CASE_REVIEW_REJECT: "Committee Rejected",
+    CASE_REVIEW_RETURN: "Case Returned",
+    CASE_REVIEW_IMPLEMENT: "Implementation Recorded",
+    CASE_OPENED: "Case Opened for Review",
+    CASE_CREATED: "Case Filed",
+    CASE_SIGNED: "Case Sign-off Recorded",
+    CASE_DRAFT_FROM_DETECTION: "Draft Case Created from Detection",
+    MONITORING_START: "Monitoring Started",
+    MONITORING_STOP: "Monitoring Stopped",
+    RESULT_HOLD_CREATED: "Result Hold Applied",
+    RESULT_RELEASED: "Result Hold Released",
+    UFM_FINE_PAYMENT_RECORDED: "Fine Payment Recorded",
+    EVIDENCE_UPLOADED: "Evidence Uploaded",
+    EVIDENCE_LINKED: "Evidence Linked to Case",
+    CLARIFICATION_SUBMITTED: "Student Clarification Submitted",
+    ROOM_CREATED: "Exam Room Created",
+    CAMERA_CREATED: "Camera Registered",
+    EXAM_CREATED: "Exam Created",
+    EXAM_UPDATED: "Exam Updated",
+    EXAM_ENROLLMENT_CREATED: "Student Enrolled in Exam",
+    EXAM_ENROLLMENT_REMOVED: "Exam Enrollment Removed",
+    EXAM_INVIGILATOR_ASSIGNED: "Invigilator Assigned",
+    EXAM_INVIGILATOR_UNASSIGNED: "Invigilator Assignment Removed",
+    STUDENT_REGISTERED_FOR_FILING: "Student Registered for Case Filing",
+    EXAM_CREATED_FOR_FILING: "Exam Record Created for Case Filing",
+    USER_CREATED: "User Account Created",
+    USER_BULK_IMPORTED: "User Accounts Imported",
+    USER_ROLE_CHANGED: "User Role Updated",
+    USER_STUDENT_LINKED: "Student Account Linked",
+    USER_STUDENT_UNLINKED: "Student Account Unlinked",
+    USER_REACTIVATED: "User Account Reactivated",
+    USER_DEACTIVATED: "User Account Deactivated",
+    ADMIN_EMAIL_TEST: "Notification Email Test",
+  };
+  const normalized = String(action).toUpperCase();
+  return (
+    labels[normalized] ||
+    normalized
+      .split("_")
+      .map((word) => word.charAt(0) + word.slice(1).toLowerCase())
+      .join(" ")
+  );
 }
 
 export function formatEntityTypeLabel(entityType) {
@@ -180,16 +240,7 @@ export function buildCaseTimeline({
     id: `created-${caseData.id}`,
     at: caseData.created_at,
     title: "Case created",
-    detail: includeReporterDetail
-      ? [
-          caseData.reporter_name || null,
-          caseData.reporter_role
-            ? formatRoleLabel(caseData.reporter_role)
-            : null,
-        ]
-          .filter(Boolean)
-          .join(" · ")
-      : null,
+    detail: includeReporterDetail ? caseData.reporter_name || null : null,
   });
 
   if (

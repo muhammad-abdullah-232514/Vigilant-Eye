@@ -11,12 +11,12 @@ import {
 } from "../services/api";
 
 const QUICK = [
-  { to: "/app/admin/users", label: "Manage Users", hint: "Open user directory →" },
-  { to: "/app/admin/users?create=1", label: "+ Add User", hint: "Create a portal account →" },
-  { to: "/app/admin/import", label: "Import Users", hint: "Bulk CSV import →" },
-  { to: "/app/admin/students", label: "Student Directory", hint: "View linked students →" },
-  { to: "/app/admin/roles", label: "Roles & Permissions", hint: "Review role catalog →" },
-  { to: "/app/admin/audit", label: "Security & Audit", hint: "View audit history →" },
+  { to: "/app/admin/users", label: "Manage Users" },
+  { to: "/app/admin/users?create=1", label: "+ Add User" },
+  { to: "/app/admin/import", label: "Import Users" },
+  { to: "/app/admin/students", label: "Student Directory" },
+  { to: "/app/admin/roles", label: "Roles & Permissions" },
+  { to: "/app/admin/audit", label: "Security & Audit" },
 ];
 
 const ROLE_ORDER = [
@@ -66,7 +66,6 @@ export default function AdminDashboardPage() {
       <PageHeader
         breadcrumb="Home / Administration"
         title="Administrator Dashboard"
-        description="Portal authorization and system administration — not examination monitoring or UFM operations."
       />
 
       {error ? (
@@ -80,11 +79,11 @@ export default function AdminDashboardPage() {
       {!loading && stats ? (
         <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-            <KpiCard title="Total users" value={stats.total} hint="Authorized portal accounts" accent="border-l-slate-600" />
-            <KpiCard title="Active" value={stats.active} hint={`${stats.inactive} inactive`} accent="border-l-emerald-500" />
-            <KpiCard title="Inactive" value={stats.inactive} hint="Cannot Google sign-in" accent="border-l-amber-500" />
-            <KpiCard title="Students" value={by.STUDENT || 0} hint={`${stats.students_linked} linked`} accent="border-l-sky-500" />
-            <KpiCard title="Administrators" value={by.ADMINISTRATOR || 0} hint="Portal admins" accent="border-l-violet-500" />
+            <KpiCard title="Total users" value={stats.total} accent="border-l-slate-600" />
+            <KpiCard title="Active" value={stats.active} accent="border-l-emerald-500" />
+            <KpiCard title="Inactive" value={stats.inactive} accent="border-l-amber-500" />
+            <KpiCard title="Students" value={by.STUDENT || 0} accent="border-l-sky-500" />
+            <KpiCard title="Administrators" value={by.ADMINISTRATOR || 0} accent="border-l-violet-500" />
           </div>
 
           <section aria-label="Quick actions" className="space-y-2">
@@ -95,7 +94,6 @@ export default function AdminDashboardPage() {
                   key={a.to + a.label}
                   to={a.to}
                   label={a.label}
-                  hint={a.hint}
                 />
               ))}
             </div>
@@ -103,9 +101,6 @@ export default function AdminDashboardPage() {
 
           <section className="portal-card p-5" data-affordance="static">
             <h2 className="portal-section-title">Role distribution</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Live counts from the users table (not Google claims).
-            </p>
             <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               {ROLE_ORDER.map((role) => (
                 <div
@@ -126,9 +121,6 @@ export default function AdminDashboardPage() {
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <div>
                 <h2 className="font-semibold text-au-navy">Recent user-management activity</h2>
-                <p className="text-xs text-slate-500">
-                  Created, role changes, activation, student links, bulk import
-                </p>
               </div>
               <Link to="/app/admin/audit" className="btn-ghost btn-sm">
                 View all →

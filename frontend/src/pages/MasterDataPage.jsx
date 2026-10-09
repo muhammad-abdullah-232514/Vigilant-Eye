@@ -372,6 +372,9 @@ export default function MasterDataPage() {
                   <h2 className="font-semibold text-au-navy">Add Exam Room</h2>
                   <input
                     required
+                    minLength={1}
+                    maxLength={50}
+                    pattern=".*\S.*"
                     className={inputClass}
                     placeholder="Room number (e.g. A-101)"
                     value={roomForm.room_number}
@@ -381,6 +384,9 @@ export default function MasterDataPage() {
                   />
                   <input
                     required
+                    minLength={1}
+                    maxLength={100}
+                    pattern=".*\S.*"
                     className={inputClass}
                     placeholder="Building"
                     value={roomForm.building}
@@ -392,6 +398,9 @@ export default function MasterDataPage() {
                     required
                     type="number"
                     min="1"
+                    max="100000"
+                    step="1"
+                    inputMode="numeric"
                     className={inputClass}
                     placeholder="Capacity"
                     value={roomForm.capacity}
@@ -452,6 +461,9 @@ export default function MasterDataPage() {
                   <h2 className="font-semibold text-au-navy">Register Camera</h2>
                   <input
                     required
+                    minLength={1}
+                    maxLength={50}
+                    pattern=".*\S.*"
                     className={inputClass}
                     placeholder="Camera ID (e.g. CAM-A101-01)"
                     value={cameraForm.camera_id}
@@ -461,6 +473,9 @@ export default function MasterDataPage() {
                   />
                   <input
                     required
+                    minLength={1}
+                    maxLength={100}
+                    pattern=".*\S.*"
                     className={inputClass}
                     placeholder="Display name"
                     value={cameraForm.name}
@@ -497,6 +512,9 @@ export default function MasterDataPage() {
                   </label>
                   <input
                     required
+                    minLength={1}
+                    maxLength={255}
+                    pattern=".*\S.*"
                     className={inputClass}
                     placeholder={
                       cameraForm.source_kind === "rtsp"
@@ -605,6 +623,9 @@ export default function MasterDataPage() {
                   <h2 className="font-semibold text-au-navy">Schedule Exam</h2>
                   <input
                     required
+                    minLength={1}
+                    maxLength={50}
+                    pattern=".*\S.*"
                     className={inputClass}
                     placeholder="Course code"
                     value={examForm.course_code}
@@ -614,6 +635,9 @@ export default function MasterDataPage() {
                   />
                   <input
                     required
+                    minLength={1}
+                    maxLength={150}
+                    pattern=".*\S.*"
                     className={inputClass}
                     placeholder="Course name"
                     value={examForm.course_name}
@@ -623,6 +647,9 @@ export default function MasterDataPage() {
                   />
                   <input
                     required
+                    minLength={1}
+                    maxLength={50}
+                    pattern=".*\S.*"
                     className={inputClass}
                     placeholder="Semester"
                     value={examForm.semester}
@@ -652,6 +679,7 @@ export default function MasterDataPage() {
                     <input
                       required
                       type="time"
+                      min={examForm.start_time}
                       className={inputClass}
                       value={examForm.end_time}
                       onChange={(e) =>

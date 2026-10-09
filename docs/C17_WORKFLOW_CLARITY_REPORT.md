@@ -12,11 +12,14 @@ Authoritative sources: `backend/workflow.py`, `STATUS_NEXT_ROLE` in `main.py`, `
 PENDING / UNDER_REVIEW  — HOD FORWARD → DEC_REVIEW
 DEC_REVIEW              — DEC FORWARD → EXAM_DEPARTMENT_REVIEW
 EXAM_DEPARTMENT_REVIEW  — Exam FORWARD → UFM_COMMITTEE_REVIEW
-UFM_COMMITTEE_REVIEW    — APPROVE → APPROVED | REJECT → REJECTED
+UFM_COMMITTEE_REVIEW    — APPROVE → EXAM_DEPARTMENT_IMPLEMENTATION | REJECT → REJECTED
+EXAM_DEPARTMENT_IMPLEMENTATION — IMPLEMENT → APPROVED
 
 RETURN (HOD / DEC / Exam Department from allowed statuses) → PENDING
   → next notified/responsible role = HOD
 ```
+
+Committee approval records one or more recommended penalties. Exam Department records implementation and any fine amount/payment; the result hold cannot be released before implementation or before a recommended fine is marked paid.
 
 **Doc vs code:** Informal “return to previous role” language must not override implementation. Ops docs + code: Return → **Pending** (HOD restarts chain).
 

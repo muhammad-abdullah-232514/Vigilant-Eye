@@ -1,12 +1,14 @@
 from pydantic import BaseModel, Field
 
+from schemas._base import InputModel
 
-class ExamRoomCreate(BaseModel):
+
+class ExamRoomCreate(InputModel):
     """JSON body the client sends when creating an exam room."""
 
     room_number: str = Field(min_length=1, max_length=50)
     building: str = Field(min_length=1, max_length=100)
-    capacity: int = Field(gt=0)
+    capacity: int = Field(gt=0, le=100000)
 
 
 class ExamRoomOut(BaseModel):

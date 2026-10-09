@@ -184,11 +184,20 @@ def test_admin_create_activate_deactivate_role_link(client_db):
             "email": "roll200@students.au.edu.pk",
             "role": "STUDENT",
             "name": "Roll200",
-            "student_roll": "200",
+            "student_roll": "200018",
+            "department": "Computer Science",
+            "program": "BSCS",
         },
     )
     assert stu.status_code == 201
-    assert stu.json()["student_roll"] == "200"
+    assert stu.json()["student_roll"] == "200018"
+    assert stu.json()["department"] == "Computer Science"
+    assert stu.json()["program"] == "BSCS"
+    student_record = db.scalar(
+        select(Student).where(Student.student_id == "200018")
+    )
+    assert student_record.department == "Computer Science"
+    assert student_record.program == "BSCS"
 
     patched = c.patch(
         f"/admin/users/{uid}",
@@ -262,7 +271,7 @@ def test_import_preview_and_confirm(client_db):
         "bad-email,STUDENT,X,1\n"
         "dup@gmail.com,INVIGILATOR,D1,\n"
         "dup@gmail.com,INVIGILATOR,D2,\n"
-        "ok.stu@students.au.edu.pk,STUDENT,OkStu,ROLL9\n"
+        "ok.stu@students.au.edu.pk,STUDENT,OkStu,232431\n"
     )
     prev = c.post(
         "/admin/users/import/preview",

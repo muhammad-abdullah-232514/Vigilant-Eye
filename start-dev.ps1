@@ -16,7 +16,8 @@ param(
     [switch]$Detach,
     [switch]$Stop,
     [switch]$Status,
-    [switch]$Build
+    [switch]$Build,
+    [switch]$Docker
 )
 
 $ErrorActionPreference = "Stop"
@@ -95,6 +96,34 @@ function Wait-Http([string]$Url, [string]$Label, [int]$Attempts = 60, [int]$Dela
     Write-Host "$Label`: NOT READY" -ForegroundColor Red
     Write-Host "Reason: $Url did not become healthy in time."
     return $false
+}
+
+if ($env:OS -eq "Windows_NT" -and -not $Docker) {
+    Ensure-EnvFile
+    $windowsLauncher = Join-Path $Root "scripts\start-windows.ps1"
+    if (-not (Test-Path $windowsLauncher)) {
+        throw "Windows startup script is missing: $windowsLauncher"
+    }
+
+    if ($Stop) {
+        & $windowsLauncher -Stop
+    }
+    elseif ($Status) {
+        & $windowsLauncher -Status
+    }
+    else {
+        if ($Build) {
+            Write-Host "The Windows launcher runs the API natively; Docker API image builds are not used."
+        }
+        if ($Detach) {
+            & $windowsLauncher -Background
+        }
+        else {
+            & $windowsLauncher
+        }
+    }
+
+    exit $LASTEXITCODE
 }
 
 if ($Stop) {

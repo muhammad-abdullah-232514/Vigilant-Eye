@@ -137,12 +137,13 @@ def _h(tok: str) -> dict:
     return {"Authorization": f"Bearer {tok}"}
 
 
-def _sign(action: str, remarks: str = "phase26") -> dict:
+def _sign(action: str, remarks: str = "phase26", **extra) -> dict:
     return {
         "action": action,
         "remarks": remarks,
         "signer_name": "Phase26 Reviewer",
         "signature_ack": True,
+        **extra,
     }
 
 
@@ -252,6 +253,11 @@ def test_workflow_table_matches_documented_chain():
         role="UFM_COMMITTEE",
         action="APPROVE",
         current_status="UFM_COMMITTEE_REVIEW",
+    ) == "EXAM_DEPARTMENT_IMPLEMENTATION"
+    assert next_status(
+        role="EXAM_DEPARTMENT",
+        action="IMPLEMENT",
+        current_status="EXAM_DEPARTMENT_IMPLEMENTATION",
     ) == "APPROVED"
     assert next_status(
         role="UFM_COMMITTEE",
@@ -302,15 +308,14 @@ def test_hod_verification_not_active_workflow_status():
         )
     assert ei.value.status_code == 400
 
-    # Legitimate RETURN sources still work
-    assert (
-        next_status(role="HOD", action="RETURN", current_status="DEC_REVIEW")
-        == "PENDING"
-    )
+    # A role can return only while its own review stage is active.
     assert (
         next_status(role="HOD", action="RETURN", current_status="UNDER_REVIEW")
         == "PENDING"
     )
+    with pytest.raises(HTTPException) as ei:
+        next_status(role="HOD", action="RETURN", current_status="DEC_REVIEW")
+    assert ei.value.status_code == 400
 
 
 def test_full_lifecycle_approve_hold_release(client_db):
@@ -363,19 +368,30 @@ def test_full_lifecycle_approve_hold_release(client_db):
     r = c.post(
         f"/ufm-cases/{case_id}/reviews",
         headers=_h(client_db["token"](client_db["ufm"])),
-        json=_sign("APPROVE", "sustained"),
+        json=_sign(
+            "APPROVE",
+            "sustained",
+            recommended_penalties=["F_GRADE"],
+        ),
     )
     assert r.status_code == 201
 
     db = client_db["db"]
     db.expire_all()
     ufm_case = db.get(UfmCase, case_id)
-    assert ufm_case.status == "APPROVED"
+    assert ufm_case.status == "EXAM_DEPARTMENT_IMPLEMENTATION"
 
     hold = db.scalar(select(ResultControl).where(ResultControl.case_id == case_id))
     assert hold is not None
     assert hold.result_status == "HELD"
     assert hold.transcript_status == "BLOCKED"
+
+    implemented = c.post(
+        f"/ufm-cases/{case_id}/reviews",
+        headers=_h(client_db["token"](client_db["exam"])),
+        json=_sign("IMPLEMENT", implemented_penalties=["F_GRADE"]),
+    )
+    assert implemented.status_code == 201, implemented.text
 
     # Duplicate hold rejected
     r = c.post(
@@ -419,6 +435,7 @@ def test_full_lifecycle_approve_hold_release(client_db):
         "FORWARD",
         "FORWARD",
         "APPROVE",
+        "IMPLEMENT",
     ]
 
     audits = db.scalars(

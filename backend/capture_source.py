@@ -26,6 +26,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 IS_MAC = platform.system() == "Darwin"
+IS_WINDOWS = platform.system() == "Windows"
 IN_DOCKER = Path("/.dockerenv").exists()
 
 # RTSP over TCP is far more reliable than UDP through NAT / Wi-Fi; 5 s socket timeout.
@@ -36,6 +37,8 @@ FIRST_FRAME_TIMEOUT = {"webcam": 6.0, "rtsp": 12.0, "stream": 12.0, "file": 3.0}
 
 class CaptureError(RuntimeError):
     """Camera/source could not deliver frames; message is shown in the portal."""
+
+    category = "CAMERA_ERROR"
 
 
 @dataclass
@@ -95,9 +98,10 @@ def _webcam_error(tried: list[int]) -> CaptureError:
     idx = ", ".join(str(i) for i in tried)
     if IN_DOCKER:
         return CaptureError(
-            f"No webcam available inside Docker (tried index {idx}). Docker Desktop on "
-            "macOS/Windows cannot access the laptop camera — run the API natively "
-            "(macOS: ./scripts/start-mac.sh) or use a sample clip / RTSP URL."
+            "Local webcam is unavailable inside Docker Desktop on this OS. "
+            "Run the backend natively on the host for webcam mode, "
+            "or configure an RTSP/IP/video source. "
+            f"Tried webcam indexes: {idx}."
         )
     if IS_MAC:
         return CaptureError(
@@ -108,7 +112,7 @@ def _webcam_error(tried: list[int]) -> CaptureError:
         )
     return CaptureError(
         f"No webcam detected (tried index {idx}). Check the camera is connected and not in "
-        "use by another app, or configure a sample clip / RTSP URL in Master Data."
+        "use by another app, or configure a live RTSP/IP camera source in Master Data."
     )
 
 
@@ -218,7 +222,13 @@ _WEBCAMS_LOCK = threading.RLock()
 
 
 def _open_webcam_device(idx: int) -> tuple[cv2.VideoCapture, np.ndarray] | None:
-    backend = cv2.CAP_AVFOUNDATION if IS_MAC else cv2.CAP_ANY
+    backend = (
+        cv2.CAP_AVFOUNDATION
+        if IS_MAC
+        else cv2.CAP_DSHOW
+        if IS_WINDOWS
+        else cv2.CAP_ANY
+    )
     cap = cv2.VideoCapture(idx, backend)
     if not cap.isOpened():
         cap.release()

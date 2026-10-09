@@ -172,6 +172,20 @@ def test_new_case_visible_only_to_inv_and_hod(client_db):
     )
 
 
+def test_hod_active_queue_keeps_opened_under_review_cases(client_db):
+    case_id = _create_case(client_db)
+    c = client_db["client"]
+    hod_headers = _h(client_db["token"](client_db["users"]["hod"]))
+
+    opened = c.get(f"/ufm-cases/{case_id}", headers=hod_headers)
+    assert opened.status_code == 200
+    assert opened.json()["status"] == "UNDER_REVIEW"
+
+    active_cases = c.get("/ufm-cases?scope=active", headers=hod_headers)
+    assert active_cases.status_code == 200, active_cases.text
+    assert case_id in {case["id"] for case in active_cases.json()}
+
+
 def test_forward_chain_visibility(client_db):
     case_id = _create_case(client_db)
     c = client_db["client"]

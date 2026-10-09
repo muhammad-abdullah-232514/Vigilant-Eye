@@ -25,12 +25,12 @@ export const OPERATIONAL_AUDIT_ROLES = Object.freeze([
   "UFM_COMMITTEE",
 ]);
 
-export const RESULT_CONTROL_ROLES = Object.freeze([
-  "EXAM_DEPARTMENT",
-  "UFM_COMMITTEE",
-]);
+export const RESULT_CONTROL_ROLES = Object.freeze(["EXAM_DEPARTMENT"]);
 
 export const CASE_CREATE_ROLES = Object.freeze(["INVIGILATOR"]);
+
+/** Exam scheduling and toolkit management — Exam Department only. */
+export const EXAM_TOOLKIT_ROLES = Object.freeze(["EXAM_DEPARTMENT"]);
 
 /** Case-linked evidence upload — Invigilator only (C28). Reviewers use view roles. */
 export const EVIDENCE_UPLOAD_ROLES = Object.freeze(["INVIGILATOR"]);
@@ -38,7 +38,6 @@ export const EVIDENCE_UPLOAD_ROLES = Object.freeze(["INVIGILATOR"]);
 export const EVIDENCE_VIEW_ROLES = Object.freeze([
   "INVIGILATOR",
   "HOD",
-  "DEC",
   "EXAM_DEPARTMENT",
   "UFM_COMMITTEE",
 ]);

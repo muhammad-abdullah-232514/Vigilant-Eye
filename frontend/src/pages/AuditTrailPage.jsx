@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { RotateCcw, Search } from "lucide-react";
 import EmptyState from "../components/EmptyState";
 import ErrorBanner from "../components/ErrorBanner";
 import LoadingState from "../components/LoadingState";
@@ -8,6 +9,7 @@ import {
   formatAuditActionLabel,
   formatEntityTypeLabel,
   formatRoleLabel,
+  formatStatusLabel,
 } from "../config/casePresentation";
 import {
   OPERATIONAL_AUDIT_ROLES,
@@ -16,6 +18,152 @@ import { useAuth } from "../context/AuthContext";
 import { downloadAuditLogsCsv, fetchAuditLogs } from "../services/api";
 
 const CAN_VIEW = new Set(OPERATIONAL_AUDIT_ROLES);
+
+const ACTION_TONES = {
+  CASE_REVIEW_FORWARD: "border-blue-200 bg-blue-50 text-blue-700",
+  CASE_REVIEW_APPROVE: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  CASE_REVIEW_REJECT: "border-rose-200 bg-rose-50 text-rose-700",
+  CASE_REVIEW_RETURN: "border-amber-200 bg-amber-50 text-amber-700",
+  CASE_REVIEW_IMPLEMENT: "border-teal-200 bg-teal-50 text-teal-700",
+  CASE_OPENED: "border-violet-200 bg-violet-50 text-violet-700",
+  CASE_CREATED: "border-sky-200 bg-sky-50 text-sky-700",
+  CASE_SIGNED: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  CASE_DRAFT_FROM_DETECTION:
+    "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
+  MONITORING_START: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  MONITORING_STOP: "border-orange-200 bg-orange-50 text-orange-700",
+  RESULT_HOLD_CREATED: "border-rose-200 bg-rose-50 text-rose-700",
+  RESULT_RELEASED: "border-cyan-200 bg-cyan-50 text-cyan-700",
+  UFM_FINE_PAYMENT_RECORDED:
+    "border-lime-200 bg-lime-50 text-lime-700",
+  EVIDENCE_UPLOADED: "border-purple-200 bg-purple-50 text-purple-700",
+  EVIDENCE_LINKED: "border-pink-200 bg-pink-50 text-pink-700",
+  CLARIFICATION_SUBMITTED: "border-cyan-200 bg-cyan-50 text-cyan-700",
+  ROOM_CREATED: "border-sky-200 bg-sky-50 text-sky-700",
+  CAMERA_CREATED: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  EXAM_CREATED: "border-violet-200 bg-violet-50 text-violet-700",
+  EXAM_UPDATED: "border-blue-200 bg-blue-50 text-blue-700",
+  EXAM_ENROLLMENT_CREATED:
+    "border-teal-200 bg-teal-50 text-teal-700",
+  EXAM_ENROLLMENT_REMOVED:
+    "border-orange-200 bg-orange-50 text-orange-700",
+  EXAM_INVIGILATOR_ASSIGNED:
+    "border-green-200 bg-green-50 text-green-700",
+  EXAM_INVIGILATOR_UNASSIGNED:
+    "border-amber-200 bg-amber-50 text-amber-700",
+  STUDENT_REGISTERED_FOR_FILING:
+    "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
+  EXAM_CREATED_FOR_FILING:
+    "border-purple-200 bg-purple-50 text-purple-700",
+  USER_CREATED: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  USER_BULK_IMPORTED: "border-cyan-200 bg-cyan-50 text-cyan-700",
+  USER_ROLE_CHANGED: "border-violet-200 bg-violet-50 text-violet-700",
+  USER_STUDENT_LINKED: "border-teal-200 bg-teal-50 text-teal-700",
+  USER_STUDENT_UNLINKED: "border-orange-200 bg-orange-50 text-orange-700",
+  USER_REACTIVATED: "border-green-200 bg-green-50 text-green-700",
+  USER_DEACTIVATED: "border-rose-200 bg-rose-50 text-rose-700",
+  ADMIN_EMAIL_TEST: "border-blue-200 bg-blue-50 text-blue-700",
+};
+
+const FALLBACK_ACTION_TONES = [
+  "border-slate-200 bg-slate-50 text-slate-700",
+  "border-amber-200 bg-amber-50 text-amber-700",
+  "border-lime-200 bg-lime-50 text-lime-700",
+  "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700",
+  "border-cyan-200 bg-cyan-50 text-cyan-700",
+  "border-indigo-200 bg-indigo-50 text-indigo-700",
+  "border-pink-200 bg-pink-50 text-pink-700",
+];
+
+function actionTone(action = "") {
+  const value = action.toUpperCase();
+  if (ACTION_TONES[value]) return ACTION_TONES[value];
+  const hash = [...value].reduce(
+    (total, character) => total * 31 + character.charCodeAt(0),
+    0
+  );
+  return FALLBACK_ACTION_TONES[Math.abs(hash) % FALLBACK_ACTION_TONES.length];
+}
+
+function formatAuditTimestamp(value) {
+  if (!value) return { date: "—", time: "" };
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return { date: "—", time: "" };
+  return {
+    date: date.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }),
+    time: date.toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+  };
+}
+
+function formatAuditDescription(row) {
+  const description = String(row.description || "").trim();
+  if (!description) return "No additional details were recorded.";
+
+  const review = description.match(
+    /^([A-Z_]+)\s+(FORWARD|APPROVE|REJECT|RETURN|IMPLEMENT)\s+on\s+([^;]+)(?:;\s*status\s*→\s*([A-Z_]+))?(?:;\s*signed by\s+(.+))?$/i
+  );
+  if (review) {
+    const [, rawRole, rawAction, caseNumber, nextStatus, signer] = review;
+    const role = formatRoleLabel(rawRole);
+    const action = rawAction.toUpperCase();
+    const actionText = {
+      FORWARD: "forwarded",
+      APPROVE: "approved",
+      REJECT: "rejected",
+      RETURN: "returned",
+      IMPLEMENT: "recorded implementation for",
+    }[action];
+    const transition = nextStatus
+      ? ` Status updated to ${formatStatusLabel(nextStatus)}.`
+      : "";
+    const signed = signer ? ` Recorded by ${signer}.` : "";
+    return `${role} ${actionText} case ${caseNumber}.${transition}${signed}`;
+  }
+
+  const opened = description.match(
+    /^([A-Z_]+)\s+opened\s+(.+?);\s*status\s*→\s*([A-Z_]+)$/i
+  );
+  if (opened) {
+    return `${formatRoleLabel(opened[1])} opened case ${opened[2]}. Status updated to ${formatStatusLabel(opened[3])}.`;
+  }
+
+  const monitoringStart = description.match(
+    /^(?:PROD|DEMO)\s+start camera\s+(\S+)\s+detect=(true|false)\s+persist=(true|false)$/i
+  );
+  if (row.action === "MONITORING_START" && monitoringStart) {
+    const [, camera, detect, persist] = monitoringStart;
+    const options = [
+      detect === "true" ? "detection enabled" : "detection disabled",
+      persist === "true" ? "case saving enabled" : "case saving disabled",
+    ];
+    return `Live monitoring started on camera ${camera} (${options.join(", ")}).`;
+  }
+
+  const cameraStop = description.match(/^Stop live session camera_id=(\d+)$/i);
+  if (row.action === "MONITORING_STOP" && cameraStop) {
+    return `Live monitoring stopped for camera #${cameraStop[1]}.`;
+  }
+
+  return description
+    .replace(/\bcase_id=(\d+)\b/gi, "Case #$1")
+    .replace(/\bcamera_id=(\d+)\b/gi, "Camera #$1")
+    .replace(/\bstudent_id=(\d+)\b/gi, "Student #$1")
+    .replace(/\bexam_id=(\d+)\b/gi, "Exam #$1")
+    .replace(/\buser_id=(\d+)\b/gi, "User #$1")
+    .replace(/\bstatus\s*→\s*([A-Z_]+)/gi, (_, status) =>
+      `status updated to ${formatStatusLabel(status)}`
+    )
+    .replace(/\s*;\s*/g, ". ")
+    .replace(/\s+/g, " ")
+    .replace(/[. ]+$/, ".");
+}
 
 export default function AuditTrailPage() {
   const { user } = useAuth();
@@ -91,19 +239,7 @@ export default function AuditTrailPage() {
   function entityCell(row) {
     const label = formatEntityTypeLabel(row.entity_type);
     if (row.entity_id == null) return label;
-    if (row.entity_type === "ufm_case") {
-      return (
-        <span>
-          {label}{" "}
-          <Link
-            to={`/app/cases/${row.entity_id}`}
-            className="font-medium text-au-blue hover:underline"
-          >
-            #{row.entity_id}
-          </Link>
-        </span>
-      );
-    }
+    if (row.entity_type === "ufm_case") return label;
     return (
       <span>
         {label} <span className="text-slate-500">#{row.entity_id}</span>
@@ -150,7 +286,6 @@ export default function AuditTrailPage() {
       <PageHeader
         breadcrumb="Home / Audit Trail"
         title="Audit Trail"
-        description="Review recorded administrative actions on cases, evidence, reviews, and result holds. Records cannot be edited or deleted from this portal."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
@@ -166,7 +301,12 @@ export default function AuditTrailPage() {
             </button>
           </div>
         }
-      />
+      >
+        <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600">
+          Review recorded actions across cases, evidence, reviews, and result
+          holds. Audit records are read-only.
+        </p>
+      </PageHeader>
 
       {error ? (
         <ErrorBanner
@@ -185,43 +325,74 @@ export default function AuditTrailPage() {
         />
       ) : null}
 
-      <div className="flex flex-wrap gap-3">
-        <label className="sr-only" htmlFor="audit-search">
-          Search audit trail
-        </label>
-        <input
-          id="audit-search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search action, entity, description, ids…"
-          className="min-w-[14rem] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-        />
-        <select
-          value={actionFilter}
-          onChange={(e) => setActionFilter(e.target.value)}
-          aria-label="Filter by action"
-          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-        >
-          <option value="">All actions</option>
-          {actions.map((a) => (
-            <option key={a} value={a}>
-              {formatAuditActionLabel(a)}
-            </option>
-          ))}
-        </select>
-        <select
-          value={entityFilter}
-          onChange={(e) => setEntityFilter(e.target.value)}
-          aria-label="Filter by entity"
-          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-        >
-          <option value="">All entities</option>
-          {entityTypes.map((t) => (
-            <option key={t} value={t}>
-              {formatEntityTypeLabel(t)}
-            </option>
-          ))}
-        </select>
+      <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Filter events
+          </p>
+          {actionFilter || entityFilter || query ? (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-au-blue hover:underline"
+              onClick={() => {
+                setActionFilter("");
+                setEntityFilter("");
+                setQuery("");
+              }}
+            >
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+              Clear filters
+            </button>
+          ) : null}
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(16rem,1fr)_15rem_13rem]">
+          <label className="relative block sm:col-span-2 xl:col-span-1">
+            <span className="sr-only">Search audit trail</span>
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+              aria-hidden
+            />
+            <input
+              id="audit-search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search actions, cases, users, or details..."
+              className="w-full rounded-lg border border-slate-300 bg-slate-50 py-2.5 pl-9 pr-3 text-sm outline-none transition focus:border-au-blue focus:bg-white focus:ring-2 focus:ring-blue-100"
+            />
+          </label>
+          <label>
+            <span className="sr-only">Filter by action</span>
+            <select
+              value={actionFilter}
+              onChange={(e) => setActionFilter(e.target.value)}
+              aria-label="Filter by action"
+              className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-au-blue focus:bg-white focus:ring-2 focus:ring-blue-100"
+            >
+              <option value="">All actions</option>
+              {actions.map((a) => (
+                <option key={a} value={a}>
+                  {formatAuditActionLabel(a)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className="sr-only">Filter by entity</span>
+            <select
+              value={entityFilter}
+              onChange={(e) => setEntityFilter(e.target.value)}
+              aria-label="Filter by entity"
+              className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-au-blue focus:bg-white focus:ring-2 focus:ring-blue-100"
+            >
+              <option value="">All entities</option>
+              {entityTypes.map((t) => (
+                <option key={t} value={t}>
+                  {formatEntityTypeLabel(t)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -257,18 +428,32 @@ export default function AuditTrailPage() {
           />
         ) : (
           <>
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-2.5">
+              <div>
+                <p className="text-sm font-semibold text-au-navy">
+                  Event history
+                </p>
+                <p className="text-xs text-slate-500">
+                  Recorded case and operational activity, newest first
+                </p>
+              </div>
+              <p className="text-xs text-slate-500">
+                {filtered.length} {filtered.length === 1 ? "event" : "events"}
+              </p>
+            </div>
             <div className="portal-data-cards">
               {filtered.map((row) => (
                 <div key={row.id} className="portal-case-card" data-affordance="static">
                   <div className="flex items-start justify-between gap-2">
-                    <p className="portal-case-card-title">
+                    <p className="portal-case-card-title capitalize">
                       {formatAuditActionLabel(row.action)}
                     </p>
-                    <span className="text-xs text-slate-500">
-                      {row.timestamp
-                        ? new Date(row.timestamp).toLocaleString()
-                        : "—"}
-                    </span>
+                    <time className="shrink-0 text-right text-xs text-slate-500">
+                      {formatAuditTimestamp(row.timestamp).date}
+                      <span className="block tabular-nums">
+                        {formatAuditTimestamp(row.timestamp).time}
+                      </span>
+                    </time>
                   </div>
                   <p className="portal-case-card-meta">
                     {formatRoleLabel(row.user_role)} · {entityCell(row)}
@@ -283,20 +468,23 @@ export default function AuditTrailPage() {
                       </Link>
                     </p>
                   ) : null}
-                  <details className="mt-2 text-sm text-slate-700">
-                    <summary className="cursor-pointer font-medium text-au-navy">
-                      Details
-                    </summary>
-                    <p className="mt-1 whitespace-pre-wrap break-words">
-                      {row.description || "—"}
-                    </p>
-                  </details>
+                  <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-700">
+                    {formatAuditDescription(row)}
+                  </p>
                 </div>
               ))}
             </div>
 
             <div className="portal-table-wrap portal-table-desktop">
-              <table className="portal-table">
+              <table className="portal-table audit-trail-table">
+                <colgroup>
+                  <col className="w-[12%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[17%]" />
+                  <col className="w-[13%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[38%]" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Timestamp</th>
@@ -311,19 +499,26 @@ export default function AuditTrailPage() {
                   {filtered.map((row) => (
                     <tr key={row.id}>
                       <td className="text-xs text-slate-500">
-                        {row.timestamp
-                          ? new Date(row.timestamp).toLocaleString()
-                          : "—"}
+                        <time className="whitespace-nowrap">
+                          {formatAuditTimestamp(row.timestamp).date}
+                          <span className="mt-0.5 block tabular-nums text-slate-400">
+                            {formatAuditTimestamp(row.timestamp).time}
+                          </span>
+                        </time>
                       </td>
                       <td className="col-hide-sm text-slate-700">
-                        {formatRoleLabel(row.user_role)}
+                        <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                          {formatRoleLabel(row.user_role)}
+                        </span>
                       </td>
                       <td>
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-au-navy">
+                        <span className={`inline-flex max-w-full rounded-full border px-2.5 py-1 text-xs font-semibold capitalize leading-snug ${actionTone(row.action)}`}>
                           {formatAuditActionLabel(row.action)}
                         </span>
                       </td>
-                      <td className="cell-wrap text-slate-700">{entityCell(row)}</td>
+                      <td className="cell-wrap text-slate-700">
+                        {entityCell(row)}
+                      </td>
                       <td className="col-hide-md">
                         {row.entity_type === "ufm_case" &&
                         row.entity_id != null ? (
@@ -338,20 +533,9 @@ export default function AuditTrailPage() {
                         )}
                       </td>
                       <td className="text-slate-700">
-                        <details>
-                          <summary className="cursor-pointer text-xs font-medium text-au-blue">
-                            <span className="line-clamp-2 inline text-slate-700">
-                              {row.description
-                                ? row.description.length > 80
-                                  ? `${row.description.slice(0, 80)}…`
-                                  : row.description
-                                : "—"}
-                            </span>
-                          </summary>
-                          <p className="mt-1 whitespace-pre-wrap break-words text-sm">
-                            {row.description || "—"}
-                          </p>
-                        </details>
+                        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">
+                          {formatAuditDescription(row)}
+                        </p>
                       </td>
                     </tr>
                   ))}

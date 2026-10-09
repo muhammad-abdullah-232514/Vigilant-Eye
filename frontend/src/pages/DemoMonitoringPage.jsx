@@ -265,6 +265,8 @@ export default function DemoMonitoringPage() {
                     </label>
                   </div>
                   <input
+                    type="text"
+                    maxLength={512}
                     className="w-full rounded border border-slate-200 px-2 py-1 text-xs"
                     placeholder="Override (webcam:0 or ai/samples/...)"
                     value={overrideById[cam.id] || ""}

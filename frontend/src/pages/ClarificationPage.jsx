@@ -316,6 +316,8 @@ export default function ClarificationPage() {
               </span>
               <textarea
                 required
+                minLength={10}
+                maxLength={5000}
                 rows={8}
                 value={form.statement}
                 onChange={(e) =>

@@ -7,9 +7,13 @@ PENDING
   → (HOD FORWARD) → DEC_REVIEW
   → (DEC FORWARD) → EXAM_DEPARTMENT_REVIEW
   → (EXAM_DEPARTMENT FORWARD) → UFM_COMMITTEE_REVIEW
-  → (UFM_COMMITTEE APPROVE|REJECT) → APPROVED|REJECTED
+  → (UFM_COMMITTEE REJECT) → REJECTED
+  → (UFM_COMMITTEE APPROVE) → EXAM_DEPARTMENT_IMPLEMENTATION
+  → (EXAM_DEPARTMENT IMPLEMENT) → APPROVED
 
-Any of HOD/DEC/EXAM_DEPARTMENT may RETURN to PENDING.
+HOD and DEC may RETURN cases to PENDING while their own stage is active.
+Exam Department may RETURN its review to DEC_REVIEW. Once forwarded, the
+previous role cannot act on the case.
 """
 
 from fastapi import HTTPException, status
@@ -18,18 +22,22 @@ from fastapi import HTTPException, status
 WORKFLOW: dict[str, dict[str, tuple[set[str], str]]] = {
     "HOD": {
         "FORWARD": ({"PENDING", "UNDER_REVIEW"}, "DEC_REVIEW"),
-        "RETURN": ({"DEC_REVIEW", "UNDER_REVIEW"}, "PENDING"),
+        "RETURN": ({"UNDER_REVIEW"}, "PENDING"),
     },
     "DEC": {
         "FORWARD": ({"DEC_REVIEW"}, "EXAM_DEPARTMENT_REVIEW"),
-        "RETURN": ({"DEC_REVIEW", "EXAM_DEPARTMENT_REVIEW"}, "PENDING"),
+        "RETURN": ({"DEC_REVIEW"}, "PENDING"),
     },
     "EXAM_DEPARTMENT": {
         "FORWARD": ({"EXAM_DEPARTMENT_REVIEW"}, "UFM_COMMITTEE_REVIEW"),
-        "RETURN": ({"EXAM_DEPARTMENT_REVIEW", "UFM_COMMITTEE_REVIEW"}, "PENDING"),
+        "RETURN": ({"EXAM_DEPARTMENT_REVIEW"}, "DEC_REVIEW"),
+        "IMPLEMENT": (
+            {"EXAM_DEPARTMENT_IMPLEMENTATION", "APPROVED"},
+            "APPROVED",
+        ),
     },
     "UFM_COMMITTEE": {
-        "APPROVE": ({"UFM_COMMITTEE_REVIEW"}, "APPROVED"),
+        "APPROVE": ({"UFM_COMMITTEE_REVIEW"}, "EXAM_DEPARTMENT_IMPLEMENTATION"),
         "REJECT": ({"UFM_COMMITTEE_REVIEW"}, "REJECTED"),
     },
 }

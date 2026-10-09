@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useOutletContext } from "react-router-dom";
+import { Link, useOutletContext, useSearchParams } from "react-router-dom";
 import EmptyState from "../components/EmptyState";
 import ErrorBanner from "../components/ErrorBanner";
 import LoadingState from "../components/LoadingState";
 import PageHeader from "../components/PageHeader";
-import { formatViolationLabel } from "../config/casePresentation";
+import {
+  formatViolationLabel,
+  violationLabelClass,
+} from "../config/casePresentation";
 import {
   CASE_CREATE_ROLES,
   DETECTION_ROLES,
@@ -12,31 +15,23 @@ import {
 } from "../config/roleAccess";
 import { useAuth } from "../context/AuthContext";
 import {
-  createDraftCaseFromDetection,
   fetchDetections,
-  fetchExams,
-  fetchStudents,
   markAllDetectionsSeen,
   markDetectionSeen,
 } from "../services/api";
 
 /** C26-FIX: detections and case creation are Invigilator-only. */
 export default function DetectionsPage() {
-  const navigate = useNavigate();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const focusedDetectionId = searchParams.get("detection_id");
   const canView = roleIn(user?.role, DETECTION_ROLES);
   const canCreateCase = roleIn(user?.role, CASE_CREATE_ROLES);
-  const { refreshDetectionsBadge } = useOutletContext() || {};
+  const { refreshDetectionsBadge, detectionAlertVersion } =
+    useOutletContext() || {};
   const [items, setItems] = useState([]);
-  const [students, setStudents] = useState([]);
-  const [exams, setExams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [draftFor, setDraftFor] = useState(null);
-  const [studentId, setStudentId] = useState("");
-  const [examId, setExamId] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [draftError, setDraftError] = useState("");
   const [filter, setFilter] = useState("all"); // all | new
 
   const unseenCount = useMemo(
@@ -56,21 +51,8 @@ export default function DetectionsPage() {
       setError("");
     }
     try {
-      const [data, s, e] = await Promise.all([
-        fetchDetections(true),
-        silent ? Promise.resolve(null) : fetchStudents().catch(() => []),
-        silent ? Promise.resolve(null) : fetchExams().catch(() => []),
-      ]);
+      const data = await fetchDetections(true);
       setItems(Array.isArray(data) ? data : []);
-      if (!silent) {
-        setStudents(Array.isArray(s) ? s : []);
-        setExams(Array.isArray(e) ? e : []);
-        const demo = (s || []).find((st) => st.student_id === "DEMO001");
-        setStudentId(
-          demo ? String(demo.id) : s?.[0]?.id ? String(s[0].id) : ""
-        );
-        setExamId(e?.[0]?.id ? String(e[0].id) : "");
-      }
       if (refreshDetectionsBadge) await refreshDetectionsBadge();
     } catch {
       if (!silent) setError("Unable to load detections. Please try again.");
@@ -101,13 +83,20 @@ export default function DetectionsPage() {
   }, [canView]);
 
   useEffect(() => {
-    if (!draftFor) return undefined;
-    function onKey(e) {
-      if (e.key === "Escape") setDraftFor(null);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [draftFor]);
+    if (!canView || !detectionAlertVersion) return undefined;
+    const timer = setTimeout(() => load({ silent: true }), 350);
+    return () => clearTimeout(timer);
+    // load uses current auth/context and intentionally runs only for a new alert.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canView, detectionAlertVersion]);
+
+  useEffect(() => {
+    if (!focusedDetectionId || loading) return;
+    const target = document.querySelector(
+      `[data-detection-id="${focusedDetectionId}"]`
+    );
+    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusedDetectionId, loading, items]);
 
   async function refreshBadge() {
     if (refreshDetectionsBadge) await refreshDetectionsBadge();
@@ -135,30 +124,6 @@ export default function DetectionsPage() {
     }
   }
 
-  async function openDraft(d) {
-    if (!d.is_seen) await onMarkSeen(d.id);
-    setDraftFor(d);
-  }
-
-  async function submitDraft() {
-    if (!draftFor) return;
-    setDraftError("");
-    setBusy(true);
-    try {
-      if (!draftFor.is_seen) await onMarkSeen(draftFor.id);
-      const caseRow = await createDraftCaseFromDetection(draftFor.id, {
-        student_id: Number(studentId),
-        exam_id: Number(examId),
-      });
-      setDraftFor(null);
-      navigate(`/app/cases/${caseRow.id}`);
-    } catch (err) {
-      setDraftError(err.message || "Could not create draft case");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   if (!canView) {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -178,7 +143,7 @@ export default function DetectionsPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="detections-page space-y-4">
       <PageHeader
         breadcrumb="Home / Detections & Alerts"
         title="Detections & Alerts"
@@ -228,7 +193,7 @@ export default function DetectionsPage() {
         />
       ) : null}
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="detections-table-card overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         {loading ? (
           <LoadingState
             compact
@@ -266,12 +231,18 @@ export default function DetectionsPage() {
                     className={[
                       "portal-case-card",
                       isNew ? "ring-1 ring-rose-200 bg-rose-50/40" : "",
+                      String(d.id) === focusedDetectionId
+                        ? "ring-2 ring-au-blue bg-sky-50 shadow-md"
+                        : "",
                     ].join(" ")}
                     data-affordance="static"
+                    data-detection-id={d.id}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <p className="portal-case-card-title">
-                        {formatViolationLabel(d.detection_type)}
+                        <span className={violationLabelClass(d.detection_type)}>
+                          {formatViolationLabel(d.detection_type)}
+                        </span>
                       </p>
                       {isNew ? (
                         <span className="rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">
@@ -302,25 +273,22 @@ export default function DetectionsPage() {
                           Mark seen
                         </button>
                       ) : null}
+                      <Link
+                        to={`/app/evidence?detection_id=${d.id}`}
+                        className="text-xs font-semibold text-au-blue hover:underline"
+                      >
+                        View
+                      </Link>
                       {canCreateCase ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => openDraft(d)}
-                            className="text-xs font-semibold text-au-navy hover:underline"
-                          >
-                            Create draft case
-                          </button>
-                          <Link
-                            to={`/app/cases/new?detection_id=${d.id}`}
-                            onClick={() => {
-                              if (isNew) onMarkSeen(d.id);
-                            }}
-                            className="text-xs font-semibold text-au-blue hover:underline"
-                          >
-                            File case
-                          </Link>
-                        </>
+                        <Link
+                          to={`/app/cases/new?detection_id=${d.id}`}
+                          onClick={() => {
+                            if (isNew) onMarkSeen(d.id);
+                          }}
+                          className="text-xs font-semibold text-au-blue hover:underline"
+                        >
+                          File case
+                        </Link>
                       ) : null}
                     </div>
                   </div>
@@ -347,7 +315,15 @@ export default function DetectionsPage() {
                     return (
                       <tr
                         key={d.id}
-                        className={isNew ? "bg-rose-50/50" : undefined}
+                        data-detection-id={d.id}
+                        className={[
+                          isNew ? "bg-rose-50/50" : "",
+                          String(d.id) === focusedDetectionId
+                            ? "detection-focused-row"
+                            : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
                       >
                         <td>
                           {isNew ? (
@@ -362,7 +338,9 @@ export default function DetectionsPage() {
                         </td>
                         <td>{d.id}</td>
                         <td className="font-medium text-au-navy">
-                          {formatViolationLabel(d.detection_type)}
+                          <span className={violationLabelClass(d.detection_type)}>
+                            {formatViolationLabel(d.detection_type)}
+                          </span>
                           {!d.is_confirmed ? (
                             <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-800">
                               review
@@ -370,7 +348,22 @@ export default function DetectionsPage() {
                           ) : null}
                         </td>
                         <td className="col-hide-md">
-                          {(Number(d.confidence || 0) * 100).toFixed(1)}%
+                          <div className="detection-confidence">
+                            <span>
+                              {(Number(d.confidence || 0) * 100).toFixed(1)}%
+                            </span>
+                            <span className="detection-confidence-track">
+                              <span
+                                className="detection-confidence-fill"
+                                style={{
+                                  width: `${Math.max(
+                                    0,
+                                    Math.min(100, Number(d.confidence || 0) * 100)
+                                  )}%`,
+                                }}
+                              />
+                            </span>
+                          </div>
                         </td>
                         <td className="col-hide-lg text-slate-600">
                           {d.camera_id ?? "—"}
@@ -381,37 +374,34 @@ export default function DetectionsPage() {
                             : "—"}
                         </td>
                         <td>
-                          <div className="flex flex-wrap gap-x-2 gap-y-1">
-                            {isNew ? (
-                              <button
-                                type="button"
-                                onClick={() => onMarkSeen(d.id)}
-                                className="text-xs font-semibold text-slate-600 hover:underline"
-                              >
-                                Mark seen
-                              </button>
-                            ) : null}
-                            {canCreateCase ? (
-                              <>
+                          <div className="detection-actions flex flex-wrap gap-2">
+                              {isNew ? (
                                 <button
                                   type="button"
-                                  onClick={() => openDraft(d)}
-                                  className="text-xs font-semibold text-au-navy hover:underline"
+                                  onClick={() => onMarkSeen(d.id)}
+                                  className="detection-action detection-action-muted"
                                 >
-                                  Create draft case
+                                  Mark seen
                                 </button>
+                              ) : null}
+                              <Link
+                                to={`/app/evidence?detection_id=${d.id}`}
+                                className="detection-action"
+                              >
+                                View
+                              </Link>
+                              {canCreateCase ? (
                                 <Link
                                   to={`/app/cases/new?detection_id=${d.id}`}
                                   onClick={() => {
                                     if (isNew) onMarkSeen(d.id);
                                   }}
-                                  className="text-xs font-semibold text-au-blue hover:underline"
+                                  className="detection-action detection-action-primary"
                                 >
                                   File case
                                 </Link>
-                              </>
-                            ) : null}
-                          </div>
+                              ) : null}
+                            </div>
                         </td>
                       </tr>
                     );
@@ -423,78 +413,6 @@ export default function DetectionsPage() {
         )}
       </div>
 
-      {draftFor ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="draft-detection-title"
-            className="w-full max-w-md space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-xl"
-          >
-            <h2
-              id="draft-detection-title"
-              className="text-lg font-semibold text-au-navy"
-            >
-              Draft case from detection #{draftFor.id}
-            </h2>
-            <p className="text-sm text-slate-600">
-              {formatViolationLabel(draftFor.detection_type)} ·{" "}
-              {(Number(draftFor.confidence || 0) * 100).toFixed(1)}% — attaches
-              any auto SNAPSHOT/CLIP evidence.
-            </p>
-            <label className="block text-sm">
-              <span className="portal-label">Student</span>
-              <select
-                value={studentId}
-                onChange={(e) => setStudentId(e.target.value)}
-                className="portal-select"
-              >
-                {students.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.student_id} — {s.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-sm">
-              <span className="portal-label">Exam</span>
-              <select
-                value={examId}
-                onChange={(e) => setExamId(e.target.value)}
-                className="portal-select"
-              >
-                {exams.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.course_code} — {e.course_name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {draftError ? (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {draftError}
-              </div>
-            ) : null}
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setDraftFor(null)}
-                className="btn-secondary"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={busy || !studentId || !examId}
-                onClick={submitDraft}
-                className="btn-primary"
-              >
-                {busy ? "Creating…" : "Create draft"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

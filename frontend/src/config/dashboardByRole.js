@@ -4,12 +4,14 @@ import {
   formatStatusLabel,
   formatViolationLabel,
 } from "./casePresentation";
+import { isLiveCamera } from "./cameraSources";
 
 export const OPEN_STATUSES = new Set([
   "PENDING",
   "UNDER_REVIEW",
   "DEC_REVIEW",
   "EXAM_DEPARTMENT_REVIEW",
+  "EXAM_DEPARTMENT_IMPLEMENTATION",
   "UFM_COMMITTEE_REVIEW",
 ]);
 
@@ -17,7 +19,10 @@ export const OPEN_STATUSES = new Set([
 export const ROLE_QUEUE_STATUSES = {
   HOD: ["PENDING", "UNDER_REVIEW"],
   DEC: ["DEC_REVIEW"],
-  EXAM_DEPARTMENT: ["EXAM_DEPARTMENT_REVIEW"],
+  EXAM_DEPARTMENT: [
+    "EXAM_DEPARTMENT_REVIEW",
+    "EXAM_DEPARTMENT_IMPLEMENTATION",
+  ],
   UFM_COMMITTEE: ["UFM_COMMITTEE_REVIEW"],
 };
 
@@ -52,8 +57,20 @@ function heldControls(resultControls) {
   return (resultControls || []).filter((r) => r.result_status === "HELD");
 }
 
-function releasedControls(resultControls) {
-  return (resultControls || []).filter((r) => r.result_status === "RELEASED");
+function isToday(value) {
+  if (!value) return false;
+  const timestamp =
+    typeof value === "string" && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value.trim())
+      ? `${value.trim()}Z`
+      : value;
+  const date = new Date(timestamp);
+  const today = new Date();
+  return (
+    !Number.isNaN(date.getTime()) &&
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate()
+  );
 }
 
 export function buildRoleKpis({
@@ -61,18 +78,50 @@ export function buildRoleKpis({
   cases,
   detections,
   cameras,
+  liveSessions,
   unread,
+  clarifications,
   resultControls,
   userId,
   adminStats,
+  decAnalytics,
+  ufmCommitteeAnalytics,
 }) {
   const open = cases.filter((c) => OPEN_STATUSES.has(c.status));
   const approved = byStatus(cases, "APPROVED");
   const rejected = byStatus(cases, "REJECTED");
-  const online = cameras.filter((c) => c.is_active).length;
-  const offline = Math.max(0, cameras.length - online);
+  const runningCameraIds = new Set(
+    liveSessions
+      .filter((session) => session.running && !session.is_demo)
+      .map((session) => Number(session.camera_id))
+  );
+  const liveCameraIds = new Set(
+    cameras
+      .filter((camera) => camera.is_active && isLiveCamera(camera))
+      .map((camera) => Number(camera.id))
+  );
+  const online = [...runningCameraIds].filter((id) => liveCameraIds.has(id)).length;
+  const offline = Math.max(0, liveCameraIds.size - online);
+  const detectionsToday = detections.filter((d) =>
+    isToday(d.timestamp || d.created_at)
+  ).length;
+  const myCases = cases.filter((c) => c.reported_by === userId);
+  const myOpen = myCases.filter((c) => OPEN_STATUSES.has(c.status));
+  const pendingReviews = myCases.filter((c) =>
+    ["PENDING", "UNDER_REVIEW", "DEC_REVIEW"].includes(c.status)
+  );
+  const myResolved = myCases.filter(
+    (c) =>
+      (c.status === "APPROVED" || c.status === "REJECTED") &&
+      isToday(c.updated_at || c.created_at)
+  );
+  const myClosed = myCases.filter(
+    (c) => c.status === "APPROVED" || c.status === "REJECTED"
+  );
   const held = heldControls(resultControls);
-  const released = releasedControls(resultControls);
+  const clarifiedCaseIds = new Set(
+    (clarifications || []).map((clarification) => Number(clarification.case_id))
+  );
 
   if (role === "ADMINISTRATOR") {
     const s = adminStats || {};
@@ -81,25 +130,21 @@ export function buildRoleKpis({
       {
         title: "Total portal users",
         value: s.total ?? 0,
-        hint: "Authorized Google identities",
         accent: "border-l-slate-600",
       },
       {
         title: "Active",
         value: s.active ?? 0,
-        hint: `${s.inactive ?? 0} inactive`,
         accent: "border-l-emerald-500",
       },
       {
         title: "Students",
         value: by.STUDENT ?? 0,
-        hint: `${s.students_linked ?? 0} linked`,
         accent: "border-l-sky-500",
       },
       {
         title: "Administrators",
         value: by.ADMINISTRATOR ?? 0,
-        hint: "University admins",
         accent: "border-l-violet-500",
       },
     ];
@@ -109,29 +154,90 @@ export function buildRoleKpis({
     const pending = cases.filter((c) =>
       ROLE_QUEUE_STATUSES.HOD.includes(c.status)
     );
+    const startOfWeek = new Date();
+    startOfWeek.setHours(0, 0, 0, 0);
+    startOfWeek.setDate(
+      startOfWeek.getDate() - ((startOfWeek.getDay() + 6) % 7)
+    );
+    const startOfNextWeek = new Date(startOfWeek);
+    startOfNextWeek.setDate(startOfNextWeek.getDate() + 7);
+    const forwardedThisWeek = cases.filter((c) => {
+      if (c.status !== "DEC_REVIEW") return false;
+      const updatedAt = c.updated_at || c.created_at;
+      if (!updatedAt) return false;
+      const timestamp =
+        typeof updatedAt === "string" &&
+        !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(updatedAt.trim())
+          ? `${updatedAt.trim()}Z`
+          : updatedAt;
+      const date = new Date(timestamp);
+      return (
+        !Number.isNaN(date.getTime()) &&
+        date >= startOfWeek &&
+        date < startOfNextWeek
+      );
+    });
+    const resolvedThisMonth = cases.filter((c) => {
+      if (c.status !== "APPROVED" && c.status !== "REJECTED") return false;
+      const updatedAt = c.updated_at || c.created_at;
+      if (!updatedAt) return false;
+      const timestamp =
+        typeof updatedAt === "string" &&
+        !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(updatedAt.trim())
+          ? `${updatedAt.trim()}Z`
+          : updatedAt;
+      const date = new Date(timestamp);
+      const now = new Date();
+      return (
+        !Number.isNaN(date.getTime()) &&
+        date.getFullYear() === now.getFullYear() &&
+        date.getMonth() === now.getMonth()
+      );
+    });
     return [
       {
-        title: "Pending department review",
+        title: "Cases Awaiting Review",
         value: pending.length,
-        hint: "Awaiting HOD action",
+        hint: "From Invigilators",
+        footer: `Total ${pending.length} awaiting HOD`,
+        hintTone: "purple",
+        compact: true,
         accent: "border-l-violet-500",
       },
       {
         title: "Forwarded to DEC",
-        value: byStatus(cases, "DEC_REVIEW").length,
-        hint: "In DEC queue",
+        value: forwardedThisWeek.length,
+        hint: "This Week",
+        footer: `${byStatus(cases, "DEC_REVIEW").length} currently with DEC`,
+        hintTone: "orange",
+        compact: true,
         accent: "border-l-sky-500",
       },
       {
-        title: "Open cases",
-        value: open.length,
-        hint: "All in-progress statuses",
-        accent: "border-l-orange-500",
+        title: "Total Department Cases",
+        value: cases.length,
+        hint: "Visible to HOD",
+        footer: `${open.length} active cases`,
+        hintTone: "blue",
+        compact: true,
+        accent: "border-l-blue-500",
       },
       {
-        title: "Unread notifications",
+        title: "Resolved Cases",
+        value: resolvedThisMonth.length,
+        hint: "This Month",
+        footer: `${approved.length + rejected.length} resolved overall`,
+        hintTone: "green",
+        compact: true,
+        accent: "border-l-emerald-500",
+      },
+      {
+        title: "Unread Notifications",
         value: unread.length,
-        hint: "Requires attention",
+        hint: "Awaiting Attention",
+        footer: "Unread in your inbox",
+        hintTone: "orange",
+        compact: true,
         accent: "border-l-rose-500",
       },
     ];
@@ -140,27 +246,44 @@ export function buildRoleKpis({
   if (role === "DEC") {
     return [
       {
-        title: "Cases received",
-        value: byStatus(cases, "DEC_REVIEW").length,
-        hint: "Awaiting DEC review",
+        title: "Received from HOD",
+        value: decAnalytics?.received_this_month ?? 0,
+        hint: "This Month",
+        hintTone: "purple",
+        compact: true,
         accent: "border-l-violet-500",
       },
       {
+        title: "Under Investigation",
+        value: byStatus(cases, "DEC_REVIEW").length,
+        hint: "In Progress",
+        hintTone: "orange",
+        compact: true,
+        accent: "border-l-orange-500",
+      },
+      {
         title: "Forwarded to Exam Dept.",
-        value: byStatus(cases, "EXAM_DEPARTMENT_REVIEW").length,
-        hint: "Next workflow stage",
+        value: decAnalytics?.forwarded_this_week ?? 0,
+        hint: "This Week",
+        hintTone: "blue",
+        compact: true,
+        padValue: false,
         accent: "border-l-sky-500",
       },
       {
         title: "At UFM Committee",
         value: byStatus(cases, "UFM_COMMITTEE_REVIEW").length,
-        hint: "Awaiting decision",
-        accent: "border-l-orange-500",
+        hint: "Awaiting Committee",
+        hintTone: "green",
+        compact: true,
+        accent: "border-l-emerald-500",
       },
       {
-        title: "Unread notifications",
-        value: unread.length,
-        hint: "Requires attention",
+        title: "Returned to HOD",
+        value: decAnalytics?.returned_this_month ?? 0,
+        hint: "This Month",
+        hintTone: "red",
+        compact: true,
         accent: "border-l-rose-500",
       },
     ];
@@ -169,27 +292,37 @@ export function buildRoleKpis({
   if (role === "EXAM_DEPARTMENT") {
     return [
       {
-        title: "Department queue",
-        value: byStatus(cases, "EXAM_DEPARTMENT_REVIEW").length,
-        hint: "Cases requiring processing",
+        title: "Cases Under Review",
+        value:
+          byStatus(cases, "EXAM_DEPARTMENT_REVIEW").length +
+          byStatus(cases, "EXAM_DEPARTMENT_IMPLEMENTATION").length,
+        hint: "Awaiting action",
+        hintTone: "purple",
+        compact: true,
         accent: "border-l-violet-500",
       },
       {
         title: "At committee",
         value: byStatus(cases, "UFM_COMMITTEE_REVIEW").length,
-        hint: "Forwarded to UFM",
+        hint: "Awaiting decision",
+        hintTone: "blue",
+        compact: true,
         accent: "border-l-sky-500",
       },
       {
         title: "Active result holds",
         value: held.length,
-        hint: `${released.length} released · open Result Holds for students`,
+        hint: "Currently active",
+        hintTone: "orange",
+        compact: true,
         accent: "border-l-rose-500",
       },
       {
         title: "Unread notifications",
         value: unread.length,
-        hint: "Requires attention",
+        hint: "Awaiting attention",
+        hintTone: "green",
+        compact: true,
         accent: "border-l-orange-500",
       },
     ];
@@ -198,94 +331,144 @@ export function buildRoleKpis({
   if (role === "UFM_COMMITTEE") {
     return [
       {
-        title: "Final review queue",
-        value: byStatus(cases, "UFM_COMMITTEE_REVIEW").length,
-        hint: "Awaiting APPROVE / REJECT",
+        title: "Cases for Final Review",
+        value: ufmCommitteeAnalytics?.cases_for_final_review ?? 0,
+        hint: "Awaiting decision",
+        hintTone: "purple",
+        compact: true,
         accent: "border-l-violet-500",
       },
       {
-        title: "Approved",
-        value: approved.length,
-        hint: "Committee decisions",
+        title: "Awaiting Implementation",
+        value: ufmCommitteeAnalytics?.awaiting_implementation ?? 0,
+        hint: "Approved by committee",
+        hintTone: "orange",
+        compact: true,
+        padValue: false,
+        accent: "border-l-orange-500",
+      },
+      {
+        title: "Decisions This Month",
+        value: ufmCommitteeAnalytics?.decisions_this_month ?? 0,
+        hint: "Committee actions",
+        hintTone: "blue",
+        compact: true,
+        accent: "border-l-sky-500",
+      },
+      {
+        title: "Closed Cases This Month",
+        value: ufmCommitteeAnalytics?.closed_cases_this_month ?? 0,
+        hint: "Finalized",
+        hintTone: "green",
+        compact: true,
         accent: "border-l-emerald-500",
       },
       {
-        title: "Rejected",
-        value: rejected.length,
-        hint: "Not upheld",
+        title: "Total Closed Cases",
+        value: ufmCommitteeAnalytics?.total_closed_cases ?? 0,
+        hint: "All time",
+        hintTone: "red",
+        compact: true,
         accent: "border-l-rose-500",
-      },
-      {
-        title: "Active result holds",
-        value: held.length,
-        hint: `${released.length} released · open Result Holds for students`,
-        accent: "border-l-orange-500",
       },
     ];
   }
 
   if (role === "STUDENT") {
+    const resolved = cases.filter(
+      (c) => c.status === "APPROVED" || c.status === "REJECTED"
+    );
+    const now = new Date();
+    const currentSemester = `${now.getMonth() < 6 ? "Spring" : "Fall"} ${now.getFullYear()}`;
+
     return [
       {
-        title: "My UFM cases",
+        title: "UFM Cases",
         value: cases.length,
-        hint: "Linked to your profile",
+        hint: "Total Cases",
+        hintTone: "blue",
+        compact: true,
         accent: "border-l-sky-500",
       },
       {
-        title: "Open cases",
-        value: open.length,
-        hint: "Still in workflow",
+        title: "Pending Clarification",
+        value: cases.filter((c) => !clarifiedCaseIds.has(Number(c.id))).length,
+        hint: "Requires Your Response",
+        hintTone: "orange",
+        compact: true,
         accent: "border-l-orange-500",
       },
       {
-        title: "Decisions recorded",
-        value: approved.length + rejected.length,
-        hint: "Approved or rejected",
+        title: "Resolved Cases",
+        value: resolved.filter(
+          (c) =>
+            c.exam_semester?.trim().toLowerCase() ===
+            currentSemester.toLowerCase()
+        ).length,
+        hint: "This Semester",
+        hintTone: "purple",
+        compact: true,
+        padValue: false,
         accent: "border-l-violet-500",
       },
       {
-        title: "Unread notifications",
-        value: unread.length,
-        hint: "Portal inbox",
-        accent: "border-l-rose-500",
+        title: "Closed Cases",
+        value: resolved.length,
+        hint: "All Time",
+        hintTone: "green",
+        compact: true,
+        padValue: false,
+        accent: "border-l-emerald-500",
       },
     ];
   }
 
   // INVIGILATOR
-  const myOpen = cases.filter(
-    (c) => c.reported_by === userId && OPEN_STATUSES.has(c.status)
-  );
-  const myClosed = cases.filter(
-    (c) =>
-      c.reported_by === userId &&
-      (c.status === "APPROVED" || c.status === "REJECTED")
-  );
   return [
     {
-      title: "Ready cameras",
+      title: "Live Cameras",
       value: online,
-      hint: `${cameras.length} registered · ${offline} offline`,
+      hint: "Online",
+      footer: `${offline} Offline`,
+      hintTone: "green",
+      compact: true,
       accent: "border-l-emerald-500",
     },
     {
-      title: "Confirmed detections",
-      value: detections.length,
-      hint: "System-assisted alerts",
+      title: "Active Alerts",
+      value: detectionsToday,
+      hint: "New Today",
+      footer: `Total ${detections.length} confirmed`,
+      hintTone: "orange",
+      compact: true,
       accent: "border-l-orange-500",
     },
     {
-      title: "My open cases",
+      title: "My Open Cases",
       value: myOpen.length,
-      hint: "Incidents you reported",
+      hint: "Awaiting review",
+      footer: `Total ${myCases.length} reported`,
+      hintTone: "blue",
+      compact: true,
       accent: "border-l-sky-500",
     },
     {
-      title: "Unread notifications",
-      value: unread.length,
-      hint: `${myClosed.length} of your cases closed`,
-      accent: "border-l-violet-500",
+      title: "Pending Reviews",
+      value: pendingReviews.length,
+      hint: "From HOD / DEC",
+      footer: `Total ${myOpen.length} open`,
+      hintTone: "purple",
+      compact: true,
+      accent: "border-l-purple-500",
+    },
+    {
+      title: "Resolved Today",
+      value: myResolved.length,
+      hint: "Closed Today",
+      footer: `Total ${myClosed.length} closed`,
+      hintTone: "green",
+      compact: true,
+      accent: "border-l-emerald-500",
     },
   ];
 }
@@ -294,7 +477,7 @@ export function queueMetaForRole(role) {
   if (role === "ADMINISTRATOR") {
     return {
       title: "Authorization overview",
-      empty: "Use Users and Import Users to manage portal authorization.",
+      empty: "No portal users.",
       action: "Open",
       viewAll: "/app/admin/users",
     };
@@ -303,7 +486,7 @@ export function queueMetaForRole(role) {
     return {
       title: "My open UFM cases",
       empty: "You have no open UFM cases.",
-      action: "Open case",
+      action: "Open",
       viewAll: "/app/cases",
     };
   }
@@ -320,7 +503,7 @@ export function queueMetaForRole(role) {
       title: "Pending department review",
       empty: "No UFM cases require HOD attention.",
       action: "Review",
-      viewAll: "/app/cases?status=PENDING",
+      viewAll: "/app/cases?scope=active",
     };
   }
   if (role === "DEC") {
@@ -333,10 +516,10 @@ export function queueMetaForRole(role) {
   }
   if (role === "EXAM_DEPARTMENT") {
     return {
-      title: "Cases requiring processing",
-      empty: "No UFM cases in the Exam Department queue.",
+      title: "Cases Under Review",
+      empty: "No UFM cases are currently under review by the Exam Department.",
       action: "Open",
-      viewAll: "/app/cases?status=EXAM_DEPARTMENT_REVIEW",
+      viewAll: "/app/cases?scope=active",
     };
   }
   if (role === "UFM_COMMITTEE") {
@@ -353,25 +536,6 @@ export function queueMetaForRole(role) {
     action: "Open",
     viewAll: "/app/cases",
   };
-}
-
-export function dashboardIntro(role) {
-  switch (role) {
-    case "ADMINISTRATOR":
-      return "University authorization management — portal users, roles, and bulk import. Google authenticates identity; VigilantEye assigns roles.";
-    case "HOD":
-      return "Departmental UFM review workspace — cases awaiting your action, evidence verification, and forwarding.";
-    case "DEC":
-      return "Case review and investigation workspace — cases received from HOD, evidence, and forwarding.";
-    case "EXAM_DEPARTMENT":
-      return "Case processing workspace — department queue, result holds, records, and reports.";
-    case "UFM_COMMITTEE":
-      return "Final review and decision workspace — committee cases, evidence history, and result controls.";
-    case "STUDENT":
-      return "Your UFM cases, notifications, clarification actions, and result-hold status.";
-    default:
-      return "Examination monitoring, detections, and UFM incidents you reported.";
-  }
 }
 
 export function quickActionsForRole(role) {
@@ -395,11 +559,10 @@ export function quickActionsForRole(role) {
   if (role === "HOD") {
     return [
       {
-        to: "/app/cases?status=PENDING",
-        label: "Pending Cases",
+        to: "/app/cases?scope=active",
+        label: "Cases for Review",
         tone: "violet",
       },
-      { to: "/app/evidence", label: "Evidence", tone: "sky" },
       { to: "/app/cases", label: "All UFM Cases", tone: "slate" },
       { to: "/app/reports", label: "Reports", tone: "orange" },
       { to: "/app/audit", label: "Audit Trail", tone: "emerald" },
@@ -413,7 +576,6 @@ export function quickActionsForRole(role) {
         tone: "violet",
       },
       { to: "/app/cases", label: "All UFM Cases", tone: "slate" },
-      { to: "/app/evidence", label: "Evidence Library", tone: "emerald" },
       { to: "/app/reports", label: "Reports", tone: "sky" },
       { to: "/app/audit", label: "Audit Trail", tone: "orange" },
     ];
@@ -421,10 +583,11 @@ export function quickActionsForRole(role) {
   if (role === "EXAM_DEPARTMENT") {
     return [
       {
-        to: "/app/cases?status=EXAM_DEPARTMENT_REVIEW",
-        label: "Department Queue",
+        to: "/app/cases?scope=active",
+        label: "Cases Under Review",
         tone: "violet",
       },
+      { to: "/app/exam-toolkit", label: "Exam Toolkit", tone: "sky" },
       { to: "/app/result-controls", label: "Result Holds", tone: "rose" },
       { to: "/app/cases", label: "All Cases", tone: "slate" },
       { to: "/app/reports", label: "Reports", tone: "orange" },
@@ -439,7 +602,6 @@ export function quickActionsForRole(role) {
         tone: "violet",
       },
       { to: "/app/cases", label: "All Cases", tone: "slate" },
-      { to: "/app/result-controls", label: "Result Holds", tone: "rose" },
       { to: "/app/evidence", label: "Evidence", tone: "emerald" },
       { to: "/app/audit", label: "Audit Trail", tone: "orange" },
     ];
@@ -498,4 +660,39 @@ export function violationChartSegments(cases) {
   return countByField(cases, "violation_type", {
     formatLabel: formatViolationLabel,
   });
+}
+
+export function studentCaseStatusSegments(cases, clarifications) {
+  const clarifiedCaseIds = new Set(
+    (clarifications || []).map((clarification) => Number(clarification.case_id))
+  );
+  const pendingClarification = cases.filter(
+    (c) => !clarifiedCaseIds.has(Number(c.id))
+  );
+  const closed = cases.filter(
+    (c) => c.status === "APPROVED" || c.status === "REJECTED"
+  );
+  const resolved = cases.filter(
+    (c) => c.status === "EXAM_DEPARTMENT_IMPLEMENTATION"
+  );
+  const excludedIds = new Set([
+    ...pendingClarification.map((c) => Number(c.id)),
+    ...closed.map((c) => Number(c.id)),
+    ...resolved.map((c) => Number(c.id)),
+  ]);
+
+  return [
+    {
+      label: "Pending Clarification",
+      count: pendingClarification.length,
+      color: "#f59e0b",
+    },
+    {
+      label: "Under Review",
+      count: cases.filter((c) => !excludedIds.has(Number(c.id))).length,
+      color: "#2563eb",
+    },
+    { label: "Resolved", count: resolved.length, color: "#16a34a" },
+    { label: "Closed", count: closed.length, color: "#94a3b8" },
+  ];
 }

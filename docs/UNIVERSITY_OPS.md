@@ -29,7 +29,7 @@ Unknown Google emails receive **403**. `@students.au.edu.pk` does **not** auto-r
 
 ## UFM lifecycle
 
-Detection/incident → case (PENDING) → HOD/DEC/Exam Dept/UFM reviews → APPROVED/REJECTED → result hold on approve → release by Exam Dept.
+Detection/incident → case (PENDING) → HOD/DEC/Exam Dept/UFM reviews → Committee APPROVE with penalty recommendations → Exam Department implementation → APPROVED. Committee REJECT ends at REJECTED. An approval creates a result hold; Exam Department records implementation and fine payment (if applicable) before releasing that hold.
 
 Concurrency: case reviews use row locks (`FOR UPDATE`).
 Clarification: one submission per student per case.

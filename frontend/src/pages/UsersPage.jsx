@@ -129,6 +129,9 @@ export default function UsersPage() {
           </h2>
           <input
             required
+            minLength={1}
+            maxLength={100}
+            pattern=".*\S.*"
             className={inputClass}
             placeholder="Full name"
             value={form.name}
@@ -157,7 +160,8 @@ export default function UsersPage() {
           <input
             required
             type="password"
-            minLength={4}
+            minLength={8}
+            maxLength={100}
             className={inputClass}
             placeholder="Initial password"
             value={form.password}

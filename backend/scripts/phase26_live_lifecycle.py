@@ -365,6 +365,7 @@ def main() -> int:
         {
             "action": "APPROVE",
             "remarks": "Phase 26 UFM Committee decision: allegation sustained",
+            "recommended_penalties": ["F_GRADE"],
             "signer_name": "UFM Committee Chair",
             "signature_ack": True,
         },
@@ -372,7 +373,11 @@ def main() -> int:
     step("ufm_approve", code == 201, f"code={code}")
     db.expire_all()
     case9 = db.get(UfmCase, case9.id)
-    step("ufm_approve_status", case9.status == "APPROVED", case9.status)
+    step(
+        "ufm_approve_status",
+        case9.status == "EXAM_DEPARTMENT_IMPLEMENTATION",
+        case9.status,
+    )
 
     code, _ = req(
         "POST",
@@ -408,6 +413,20 @@ def main() -> int:
         "PATCH", f"/result-controls/{hold.id}/release", tok(users["inv"])
     )
     step("inv_release_blocked", code == 403, f"code={code}")
+
+    code, _ = req(
+        "POST",
+        f"/ufm-cases/{case9.id}/reviews",
+        tok(users["exam"]),
+        {
+            "action": "IMPLEMENT",
+            "remarks": "Implemented the Committee decision",
+            "implemented_penalties": ["F_GRADE"],
+            "signer_name": "Exam Department",
+            "signature_ack": True,
+        },
+    )
+    step("exam_implementation", code == 201, f"code={code}")
 
     code, released = req(
         "PATCH", f"/result-controls/{hold.id}/release", tok(users["exam"])

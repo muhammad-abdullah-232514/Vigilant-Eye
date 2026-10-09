@@ -1,7 +1,9 @@
+import { getAuthToken } from "../utils/authStorage";
+
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 function getToken() {
-  return localStorage.getItem("ve_token");
+  return getAuthToken();
 }
 
 export async function apiRequest(path, options = {}) {
@@ -200,6 +202,25 @@ export async function fetchCaseReviews(caseId) {
   return apiRequest(`/ufm-cases/${caseId}/reviews`);
 }
 
+export async function fetchHodDashboardAnalytics(year, month) {
+  const params = new URLSearchParams({ year: String(year), month: String(month) });
+  return apiRequest(`/dashboard/hod-analytics?${params}`);
+}
+
+export async function fetchDecDashboardAnalytics() {
+  return apiRequest("/dashboard/dec-analytics");
+}
+
+export async function fetchUfmCommitteeDashboardAnalytics(year, month) {
+  const params = new URLSearchParams();
+  if (year) params.set("year", String(year));
+  if (month) params.set("month", String(month));
+  const query = params.toString();
+  return apiRequest(
+    `/dashboard/ufm-committee-analytics${query ? `?${query}` : ""}`
+  );
+}
+
 export async function createCaseReview(caseId, payload) {
   return apiRequest(`/ufm-cases/${caseId}/reviews`, {
     method: "POST",
@@ -254,6 +275,13 @@ export async function uploadEvidence(formData) {
   return apiRequest("/evidence", {
     method: "POST",
     body: formData,
+  });
+}
+
+export async function linkEvidenceToCase(caseId, evidenceIds) {
+  return apiRequest(`/ufm-cases/${caseId}/evidence`, {
+    method: "POST",
+    body: JSON.stringify({ evidence_ids: evidenceIds }),
   });
 }
 
@@ -330,35 +358,51 @@ function isBrowserViewable(mime) {
 
 function renderEvidenceViewer(win, { url, mime, filename }) {
   const safeName = String(filename || "evidence").replace(/[<>&"]/g, "");
+  let content = "";
   if (mime.startsWith("image/")) {
-    win.document.open();
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${safeName}</title>
-<style>html,body{margin:0;height:100%;background:#0f172a}body{display:flex;align-items:center;justify-content:center}
-img{max-width:100%;max-height:100vh;object-fit:contain}</style></head>
-<body><img src="${url}" alt="${safeName}"/></body></html>`);
-    win.document.close();
-    return;
-  }
-  if (mime === "video/mp4" || mime === "video/webm") {
-    win.document.open();
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${safeName}</title>
-<style>html,body{margin:0;height:100%;background:#0f172a}body{display:flex;align-items:center;justify-content:center}
-video{max-width:100%;max-height:100vh}</style></head>
-<body><video src="${url}" controls autoplay></video></body></html>`);
-    win.document.close();
-    return;
-  }
-  if (mime === "application/pdf") {
-    win.location.href = url;
-    return;
+    content = `<img src="${url}" alt="${safeName}"/>`;
+  } else if (mime === "video/mp4" || mime === "video/webm") {
+    content = `<video src="${url}" controls autoplay></video>`;
+  } else if (mime === "application/pdf") {
+    content = `<iframe src="${url}" title="${safeName}"></iframe>`;
+  } else {
+    content = `<p>This file type (<code>${mime || "unknown"}</code>) cannot be shown inline.</p>
+<p>Use <strong>Download</strong> to save and open the file locally.</p>`;
   }
   win.document.open();
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${safeName}</title>
-<style>body{font-family:system-ui,sans-serif;padding:2rem;color:#0f172a}</style></head>
-<body><h1>Preview not available in browser</h1>
-<p>This file type (<code>${mime || "unknown"}</code>) cannot be shown inline.</p>
-<p>Close this tab and use <strong>Download</strong> on the portal.</p>
-</body></html>`);
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>${safeName}</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;font-family:system-ui,sans-serif}
+body{display:flex;flex-direction:column;background:#0f172a;color:#f8fafc}
+header{height:56px;flex:0 0 56px;display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:0 1rem;background:#fff;color:#0f172a}
+header strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button{border:0;border-radius:6px;padding:.5rem .85rem;background:#e2e8f0;color:#0f172a;font:600 14px system-ui,sans-serif;cursor:pointer}
+button:hover{background:#cbd5e1}main{min-height:0;flex:1;display:flex;align-items:center;justify-content:center;padding:1rem}
+img,video{display:block;max-width:100%;max-height:100%;object-fit:contain}
+iframe{width:100%;height:100%;border:0;background:#fff}
+p{max-width:36rem;line-height:1.6}code{overflow-wrap:anywhere}
+</style></head>
+<body><header><strong>${safeName}</strong><button type="button" aria-label="Close evidence preview" onclick="window.close()">Close preview</button></header>
+<main>${content}</main></body></html>`);
+  win.document.close();
+}
+
+function renderEvidenceMessage(win, title, message) {
+  const escapeHtml = (value) =>
+    String(value).replace(/[&<>"']/g, (character) => {
+      const entities = {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      };
+      return entities[character];
+    });
+  win.document.open();
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>${escapeHtml(title)}</title>
+<style>body{margin:0;font:16px system-ui,sans-serif;color:#0f172a}header{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;border-bottom:1px solid #e2e8f0}button{border:0;border-radius:6px;padding:.5rem .85rem;background:#e2e8f0;font:600 14px system-ui,sans-serif;cursor:pointer}main{padding:1.5rem;line-height:1.6}</style></head>
+<body><header><strong>${escapeHtml(title)}</strong><button type="button" aria-label="Close evidence preview" onclick="window.close()">Close preview</button></header><main>${escapeHtml(message)}</main></body></html>`);
   win.document.close();
 }
 
@@ -385,16 +429,10 @@ export async function openEvidenceFile(evidenceId) {
       if (isBrowserViewable(original.mime)) {
         loaded = original;
       } else {
-        URL.revokeObjectURL(original.url);
         if (win && !win.closed) {
-          win.document.open();
-          win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Evidence</title>
-<style>body{font-family:system-ui,sans-serif;padding:2rem}</style></head>
-<body><h1>Cannot open this file in the browser</h1>
-<p>Use the <strong>Download</strong> button to save and open it locally (e.g. AVI clips).</p>
-</body></html>`);
-          win.document.close();
+          renderEvidenceViewer(win, original);
         }
+        URL.revokeObjectURL(original.url);
         return;
       }
     }
@@ -418,13 +456,11 @@ export async function openEvidenceFile(evidenceId) {
   } catch (err) {
     if (win && !win.closed) {
       try {
-        win.document.open();
-        win.document.write(
-          `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:2rem"><p>Could not open evidence.</p><p>${String(
-            err.message || err
-          )}</p></body></html>`
+        renderEvidenceMessage(
+          win,
+          "Could not open evidence",
+          err.message || String(err)
         );
-        win.document.close();
       } catch {
         try {
           win.close();
@@ -494,6 +530,13 @@ export async function fetchResultControls() {
 export async function releaseResultControl(controlId) {
   return apiRequest(`/result-controls/${controlId}/release`, {
     method: "PATCH",
+  });
+}
+
+export async function markResultControlFinePaid(controlId) {
+  return apiRequest(`/result-controls/${controlId}/fine-payment`, {
+    method: "PATCH",
+    body: JSON.stringify({ fine_paid: true }),
   });
 }
 

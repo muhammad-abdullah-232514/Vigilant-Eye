@@ -1,7 +1,9 @@
 from pydantic import BaseModel, Field
 
+from schemas._base import InputModel
 
-class CameraCreate(BaseModel):
+
+class CameraCreate(InputModel):
     """JSON body the client sends when creating a camera."""
 
     camera_id: str = Field(min_length=1, max_length=50)

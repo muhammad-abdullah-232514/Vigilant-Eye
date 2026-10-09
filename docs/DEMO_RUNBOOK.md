@@ -84,9 +84,10 @@ Login page: click a role card to **sign in** (password `Demo@123`).
 | 1 | `hod@demo.com` | **FORWARD** + sign-off | `DEC_REVIEW` |
 | 2 | `dec@demo.com` | **FORWARD** + sign-off | `EXAM_DEPARTMENT_REVIEW` |
 | 3 | `examdept@demo.com` | **FORWARD** + sign-off | `UFM_COMMITTEE_REVIEW` |
-| 4 | `ufm@demo.com` | **APPROVE** (or REJECT) + sign-off | `APPROVED` / `REJECTED` |
+| 4 | `ufm@demo.com` | **APPROVE** with one or more recommended penalties (or REJECT) + sign-off | `EXAM_DEPARTMENT_IMPLEMENTATION` / `REJECTED` |
+| 5 | `examdept@demo.com` | Confirm implementation; enter a fine amount if a fine was recommended | `APPROVED` |
 
-On **APPROVE**: result hold (HELD / BLOCKED) → show **Result Control** → optional **Release**.
+On **APPROVE**: result hold (HELD / BLOCKED) appears in **Result Controls**. If a fine was recommended, mark it paid after receiving payment. Exam Department can release the hold only after implementation and fine payment (when applicable).
 
 ### D. Audit Trail
 

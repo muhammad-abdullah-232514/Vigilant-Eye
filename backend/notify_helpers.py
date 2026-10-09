@@ -1,13 +1,16 @@
 """Portal notification helpers with optional SMTP / EMAIL_MOCK.
 
-Portal notifications always persist. Email is queued until after a successful
-DB commit so SMTP failures never roll back workflow state.
+Portal notifications always persist. Email is queued after a successful DB
+commit and dispatched asynchronously, so SMTP latency does not block workflow
+responses and delivery failures never roll back committed state.
 
 Authoritative recipient: User.email for Notification.user_id (server-side only).
 """
 
 from __future__ import annotations
 
+import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from sqlalchemy import event, select
@@ -17,6 +20,12 @@ from email_notify import PORTAL_BASE_URL, send_email
 from email_templates import build_notification_email
 from models.notification import Notification
 from models.user import User
+
+logger = logging.getLogger("vigilanteye.notifications")
+_EMAIL_EXECUTOR = ThreadPoolExecutor(
+    max_workers=4,
+    thread_name_prefix="vigilanteye-email",
+)
 
 # In-app always; email for important institutional events only.
 # CLARIFICATION covers student clarification request/submit flows in main.py.
@@ -43,10 +52,17 @@ def notification_type_sends_email(type: str) -> bool:
     return str(type).startswith("CASE_")
 
 
+def _dispatch_email(payload: dict[str, Any]) -> None:
+    try:
+        send_email(**payload)
+    except Exception as exc:  # noqa: BLE001 — notification delivery must not affect committed work
+        logger.error("EMAIL_DISPATCH_UNEXPECTED err=%s", type(exc).__name__)
+
+
 def _queue_email_after_commit(db: Session, payload: dict[str, Any]) -> None:
     """
-    Defer SMTP until after_commit so a failed send cannot unwind DB work,
-    and a rolled-back transaction never sends mail.
+    Dispatch SMTP after commit without making API responses wait for delivery.
+    A rolled-back transaction never sends mail.
     """
     pending = db.info.setdefault("ve_pending_emails", [])
     pending.append(payload)
@@ -60,9 +76,9 @@ def _queue_email_after_commit(db: Session, payload: dict[str, Any]) -> None:
         session.info.pop("ve_email_listener_registered", None)
         for item in items:
             try:
-                send_email(**item)
-            except Exception:  # noqa: BLE001 — belt-and-suspenders; send_email never raises
-                pass
+                _EMAIL_EXECUTOR.submit(_dispatch_email, item)
+            except Exception as exc:  # noqa: BLE001 — SMTP must not roll back committed work
+                logger.error("EMAIL_QUEUE_UNEXPECTED err=%s", type(exc).__name__)
 
     @event.listens_for(db, "after_rollback", once=True)
     def _on_rollback(session: Session) -> None:
@@ -108,6 +124,7 @@ def create_notification(
         case_id=case_id,
         notification_type=type,
         portal_base_url=PORTAL_BASE_URL or None,
+        portal_path="/student-portal" if user.role == "STUDENT" else None,
     )
     _queue_email_after_commit(
         db,

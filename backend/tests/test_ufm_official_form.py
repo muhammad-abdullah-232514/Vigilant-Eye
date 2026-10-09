@@ -20,6 +20,10 @@ from models.student import Student
 from models.user import User
 from security import create_access_token, hash_password
 
+ROOT = Path(__file__).resolve().parents[2]
+CREATE_CASE_PAGE = ROOT / "frontend" / "src" / "pages" / "CreateCasePage.jsx"
+CASE_REVIEW_FORM = ROOT / "frontend" / "src" / "components" / "CaseReviewForm.jsx"
+
 
 @pytest.fixture()
 def client_db():
@@ -147,6 +151,47 @@ def test_create_case_with_recovered_materials(client_db):
         "MOBILE_PHONE",
         "ANSWER_EXTRA_SHEET",
     ]
+    assert got.json()["exam_start_time"] == "09:00:00"
+    assert got.json()["exam_end_time"] == "12:00:00"
+    assert got.json()["reporter_email"] == client_db["inv"].email
+    student_view = c.get(
+        f"/ufm-cases/{body['id']}",
+        headers=_h(client_db["token"](client_db["student_user"])),
+    )
+    assert student_view.status_code == 200
+    assert student_view.json()["reporter_email"] is None
+    student_list = c.get(
+        "/ufm-cases",
+        headers=_h(client_db["token"](client_db["student_user"])),
+    )
+    assert student_list.status_code == 200
+    assert next(
+        item for item in student_list.json() if item["id"] == body["id"]
+    )["reporter_email"] is None
+
+
+def test_case_review_uses_original_form_and_appends_role_remarks():
+    review_form = CASE_REVIEW_FORM.read_text(encoding="utf-8")
+    create_form = CREATE_CASE_PAGE.read_text(encoding="utf-8")
+
+    for section in (
+        "Student Information",
+        "Incident / Examination Information",
+        "Details of UFM Incident",
+        "Recovered / Confiscated Material",
+        "Invigilator / Examination Staff Information",
+        "Supporting Evidence",
+        "Recommendations / Committee Review",
+        "Remarks / Signatures / Submission",
+    ):
+        assert section in create_form
+        assert section in review_form
+
+    assert "review.remarks" in review_form
+    assert "review.signer_name" in review_form
+    assert "review.signed_at" in review_form
+    assert "actionOutcomes.map" in review_form
+    assert "Your remarks / reason" in review_form
 
 
 def test_other_material_requires_detail(client_db):

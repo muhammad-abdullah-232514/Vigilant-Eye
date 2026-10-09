@@ -17,7 +17,7 @@ export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [unseenDetections, setUnseenDetections] = useState(0);
-  const [livePulse, setLivePulse] = useState(null);
+  const [detectionAlertVersion, setDetectionAlertVersion] = useState(0);
 
   const showDetectionBadge = roleIn(user?.role, DETECTION_ROLES);
 
@@ -64,6 +64,7 @@ export default function AppLayout() {
     let ws;
     let closed = false;
     let retry;
+    let badgeRefresh;
     let authFailed = false;
     function connect() {
       if (closed || authFailed) return;
@@ -83,8 +84,14 @@ export default function AppLayout() {
             msg.type === "CONNECTED"
           ) {
             if (msg.type !== "CONNECTED") {
-              setLivePulse(msg);
-              loadBadges();
+              if (
+                msg.type === "DETECTION_ALERT" ||
+                msg.type === "SUSPICION_ALERT"
+              ) {
+                setDetectionAlertVersion((version) => version + 1);
+                if (badgeRefresh) clearTimeout(badgeRefresh);
+                badgeRefresh = setTimeout(loadBadges, 350);
+              }
             }
           }
         } catch {
@@ -104,6 +111,7 @@ export default function AppLayout() {
     return () => {
       closed = true;
       if (retry) clearTimeout(retry);
+      if (badgeRefresh) clearTimeout(badgeRefresh);
       try {
         ws?.close();
       } catch {
@@ -124,34 +132,19 @@ export default function AppLayout() {
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
       />
-      {livePulse ? (
-        <div
-          className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-xs text-amber-900"
-          role="status"
-          aria-live="polite"
-        >
-          Live alert: {livePulse.type}
-          {livePulse.label ? ` · ${livePulse.label}` : ""}
-          {livePulse.level ? ` · ${livePulse.level}` : ""}
-          {livePulse.score != null ? ` · score ${livePulse.score}` : ""}
-          <button
-            type="button"
-            className="ml-3 font-semibold underline"
-            onClick={() => setLivePulse(null)}
-            aria-label="Dismiss live alert"
-          >
-            Dismiss
-          </button>
-        </div>
-      ) : null}
       <div className="flex min-h-0 flex-1">
         <Sidebar
           open={sidebarOpen}
           badges={badges}
           onNavigate={() => setSidebarOpen(false)}
         />
-        <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-          <div className="mx-auto w-full max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+        <main
+          className={[
+            "min-h-0 flex-1 overflow-y-auto overflow-x-hidden",
+            user?.role === "INVIGILATOR" ? "invigilator-shell" : "",
+          ].join(" ")}
+        >
+          <div className="mx-auto w-full max-w-[1600px] space-y-6 p-4 sm:p-6 lg:p-8">
             <Outlet
               context={{
                 refreshNotifications: async () => {
@@ -171,6 +164,7 @@ export default function AppLayout() {
                     /* ignore */
                   }
                 },
+                detectionAlertVersion,
               }}
             />
           </div>

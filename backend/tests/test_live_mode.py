@@ -50,3 +50,17 @@ def test_validate_blocks_path_traversal():
 
 def test_validate_webcam_ok():
     assert _validate_source_url("webcam:0") == "webcam:0"
+
+
+def test_production_rejects_sample_file_sources():
+    with pytest.raises(HTTPException) as exc:
+        _validate_source_url("ai/samples/clip.mp4", allow_sample_file=False)
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.parametrize(
+    "source",
+    ["webcam:0", "0", "rtsp://camera.local/stream", "http://camera.local/live"],
+)
+def test_production_accepts_live_camera_sources(source):
+    assert _validate_source_url(source, allow_sample_file=False) == source

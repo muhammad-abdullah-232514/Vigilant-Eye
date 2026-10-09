@@ -58,4 +58,6 @@ def invigilator_out(db: Session, row: ExamInvigilator) -> dict:
         "user_id": row.user_id,
         "user_email": user.email if user else None,
         "user_name": user.name if user else None,
+        "is_primary": bool(getattr(row, "is_primary", False)),
+        "duty_status": getattr(row, "duty_status", "ASSIGNED"),
     }

@@ -16,8 +16,7 @@ export const ROLE_LABELS = {
  * Item shape: { to, label, badgeKey? }
  * badgeKey only when AppLayout supplies a real count (notifications / detections).
  *
- * Demo / Testing (/app/monitoring/demo) remains routed and linked from Live Monitoring;
- * it is intentionally omitted from production role navigation.
+ * Sample-clip monitoring is not exposed through the application routes.
  */
 export const NAV_BY_ROLE = {
   ADMINISTRATOR: [
@@ -115,9 +114,8 @@ export const NAV_BY_ROLE = {
     {
       section: "UFM Review",
       items: [
-        { to: "/app/cases?status=PENDING", label: "Cases for Review" },
+        { to: "/app/cases?scope=active", label: "Cases for Review" },
         { to: "/app/cases", label: "All UFM Cases" },
-        { to: "/app/evidence", label: "Evidence Library" },
       ],
     },
     {
@@ -156,7 +154,6 @@ export const NAV_BY_ROLE = {
           label: "Cases Received from HOD",
         },
         { to: "/app/cases", label: "All UFM Cases" },
-        { to: "/app/evidence", label: "Evidence Library" },
       ],
     },
     {
@@ -191,8 +188,8 @@ export const NAV_BY_ROLE = {
       section: "Case Processing",
       items: [
         {
-          to: "/app/cases?status=EXAM_DEPARTMENT_REVIEW",
-          label: "Cases for Processing",
+          to: "/app/cases?scope=active",
+          label: "Cases Under Review",
         },
         {
           to: "/app/cases?status=UFM_COMMITTEE_REVIEW",
@@ -202,8 +199,46 @@ export const NAV_BY_ROLE = {
       ],
     },
     {
-      section: "Result Controls",
-      items: [{ to: "/app/result-controls", label: "Result Holds" }],
+      section: "Examination Operations",
+      items: [{ to: "/app/exam-toolkit", label: "Exam Toolkit" }],
+    },
+    {
+      section: "Result Control",
+      items: [
+        {
+          label: "Result Control",
+          children: [
+            {
+              to: "/app/result-controls?category=result-hold",
+              label: "Result Holds",
+            },
+            {
+              to: "/app/result-controls?category=transcript-block",
+              label: "Transcript Blocks",
+            },
+            {
+              to: "/app/result-controls?category=F_GRADE",
+              label: "F Grade — Affected Course",
+            },
+            {
+              to: "/app/result-controls?category=FINE",
+              label: "Penalty Fine",
+            },
+            {
+              to: "/app/result-controls?category=SEMESTER_RELEGATION",
+              label: "Semester Relegation",
+            },
+            {
+              to: "/app/result-controls?category=SEMESTER_F_ALL_SUBJECTS",
+              label: "F Grade — All Semester Subjects",
+            },
+            {
+              to: "/app/result-controls?category=EXPULSION",
+              label: "Expulsion",
+            },
+          ],
+        },
+      ],
     },
     {
       section: "Records",
@@ -245,10 +280,6 @@ export const NAV_BY_ROLE = {
         { to: "/app/cases", label: "All Cases" },
         { to: "/app/evidence", label: "Evidence Library" },
       ],
-    },
-    {
-      section: "Result Controls",
-      items: [{ to: "/app/result-controls", label: "Result Holds" }],
     },
     {
       section: "Records",
@@ -322,6 +353,7 @@ const INVIGILATOR_NAV_DENY_PATHS = new Set([
 const HOD_NAV_DENY_PATHS = new Set([
   "/app/master-data",
   "/app/students",
+  "/app/exam-toolkit",
   "/app/cases?status=DEC_REVIEW",
   "/app/cases/new",
   "/app/monitoring",

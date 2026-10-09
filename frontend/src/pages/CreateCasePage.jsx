@@ -5,6 +5,7 @@ import EvidenceLibraryPicker from "../components/EvidenceLibraryPicker";
 import LoadingState from "../components/LoadingState";
 import PageHeader from "../components/PageHeader";
 import PortalSearchSelect from "../components/PortalSearchSelect";
+import FormSection from "../components/UfmFormSection";
 import { fileNameFromPath } from "../config/casePresentation";
 import {
   UFM_FORM_INSTITUTION,
@@ -27,44 +28,18 @@ import {
   loadEvidenceObjectUrl,
   openEvidenceFile,
   downloadEvidenceFile,
+  uploadEvidence,
 } from "../services/api";
 import { CASE_CREATE_ROLES, roleIn } from "../config/roleAccess";
 import { useAuth } from "../context/AuthContext";
 
 const CAN_CREATE = new Set(CASE_CREATE_ROLES);
-
-function FormSection({ letter, title, children, className = "" }) {
-  return (
-    <section
-      className={`ufm-form-section border-b border-slate-300 px-4 py-5 sm:px-6 ${className}`}
-      aria-labelledby={`ufm-section-${letter}`}
-    >
-      <h2
-        id={`ufm-section-${letter}`}
-        className="mb-4 border-b border-slate-100 pb-2 text-sm font-bold uppercase tracking-wide text-au-navy"
-      >
-        <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded bg-au-navy text-[11px] font-bold normal-case text-white">
-          {letter}
-        </span>
-        <span>{title}</span>
-      </h2>
-      {children}
-    </section>
-  );
-}
-
-function ReadOnlyField({ label, value }) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-        {label}
-      </dt>
-      <dd className="mt-0.5 break-words text-sm text-slate-900">
-        {value || "—"}
-      </dd>
-    </div>
-  );
-}
+const EVIDENCE_FILE_ACCEPT =
+  ".jpg,.jpeg,.png,.gif,.webp,.bmp,.mp4,.mov,.avi,.webm,.mkv,.pdf,.txt,.csv,.doc,.docx";
+const ALLOWED_EVIDENCE_EXTENSIONS = new Set(
+  EVIDENCE_FILE_ACCEPT.split(",").map((extension) => extension.slice(1))
+);
+const MAX_EVIDENCE_FILE_BYTES = 50 * 1024 * 1024;
 
 export default function CreateCasePage() {
   const navigate = useNavigate();
@@ -82,6 +57,7 @@ export default function CreateCasePage() {
   const [examLoading, setExamLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [submissionStage, setSubmissionStage] = useState("creating");
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [detection, setDetection] = useState(null);
@@ -110,13 +86,13 @@ export default function CreateCasePage() {
   const [selectedStaffUserId, setSelectedStaffUserId] = useState("");
   const [staffDetails, setStaffDetails] = useState({
     name: "",
-    email: "",
-    staff_id: "",
     role: "",
   });
   const [libraryEvidence, setLibraryEvidence] = useState([]);
   const [libraryPickerOpen, setLibraryPickerOpen] = useState(false);
   const [libraryPreviews, setLibraryPreviews] = useState({});
+  const [localEvidenceFiles, setLocalEvidenceFiles] = useState([]);
+  const [localEvidenceType, setLocalEvidenceType] = useState("DOCUMENT");
 
   const [form, setForm] = useState({
     student_id: "",
@@ -300,8 +276,6 @@ export default function CreateCasePage() {
     setSelectedStaffUserId(String(s.user_id));
     setStaffDetails({
       name: s.user_name || "",
-      email: s.user_email || "",
-      staff_id: s.staff_id != null ? String(s.staff_id) : "",
       role: s.role || "",
     });
   }
@@ -326,16 +300,6 @@ export default function CreateCasePage() {
         (s) => String(s.user_id) === String(selectedStaffUserId)
       ),
     [staffPool, selectedStaffUserId]
-  );
-
-  const displayedStaff = useMemo(
-    () => ({
-      user_name: staffDetails.name,
-      user_email: staffDetails.email,
-      staff_id: staffDetails.staff_id,
-      role: staffDetails.role || (selectedStaffUserId ? selectedStaff?.role : "Recorded on form"),
-    }),
-    [staffDetails, selectedStaffUserId, selectedStaff]
   );
 
   const searchStudents = useCallback(
@@ -381,37 +345,6 @@ export default function CreateCasePage() {
     const roomId = examDetail?.room_id ?? selectedExam?.room_id;
     return formatRoomText(roomId);
   }, [examDetails.room, examDetail, selectedExam, rooms]);
-
-  const roomCameras = useMemo(() => {
-    const cams = Array.isArray(examDetail?.room_cameras)
-      ? examDetail.room_cameras
-      : [];
-    return cams.filter((c) => c && c.is_active !== false);
-  }, [examDetail]);
-
-  const detectionCameraLocked = detection?.camera_id != null;
-
-  const selectedCameraLabel = useMemo(() => {
-    if (detectionCameraLocked) {
-      const fromRoom = roomCameras.find(
-        (c) => Number(c.id) === Number(detection.camera_id)
-      );
-      if (fromRoom) {
-        return `${fromRoom.camera_id}${fromRoom.name ? ` — ${fromRoom.name}` : ""}`;
-      }
-      return `Camera #${detection.camera_id}`;
-    }
-    const cam = roomCameras.find(
-      (c) => String(c.id) === String(form.camera_id)
-    );
-    if (!cam) return "";
-    return `${cam.camera_id}${cam.name ? ` — ${cam.name}` : ""}`;
-  }, [
-    detectionCameraLocked,
-    detection,
-    roomCameras,
-    form.camera_id,
-  ]);
 
   const examTimeLabel = useMemo(() => {
     const start =
@@ -615,8 +548,6 @@ export default function CreateCasePage() {
           ? prev
           : {
               name: user.name || "",
-              email: user.email || "",
-              staff_id: "",
               role: user.role || "",
             }
       );
@@ -707,25 +638,6 @@ export default function CreateCasePage() {
       setForm((prev) => ({ ...prev, student_id: "" }));
     }
   }, [selectableStudents, form.student_id]);
-
-  // Prefill / constrain camera_id to exam room cameras (or detection camera)
-  useEffect(() => {
-    if (detectionCameraLocked && detection?.camera_id != null) {
-      setForm((prev) =>
-        String(prev.camera_id) === String(detection.camera_id)
-          ? prev
-          : { ...prev, camera_id: String(detection.camera_id) }
-      );
-      return;
-    }
-    if (!form.camera_id) return;
-    const ok = roomCameras.some(
-      (c) => String(c.id) === String(form.camera_id)
-    );
-    if (!ok) {
-      setForm((prev) => ({ ...prev, camera_id: "" }));
-    }
-  }, [roomCameras, form.camera_id, detectionCameraLocked, detection]);
 
   // Detection evidence
   useEffect(() => {
@@ -853,15 +765,10 @@ export default function CreateCasePage() {
     const name = staffDetails.name.trim();
     if (!name) return "";
     // Don't duplicate the reporting invigilator's own name into remarks.
-    if (user?.name && name === user.name.trim() && !staffDetails.staff_id.trim()) {
+    if (user?.name && name === user.name.trim()) {
       return "";
     }
-    const parts = [name];
-    if (staffDetails.email.trim()) parts.push(staffDetails.email.trim());
-    if (staffDetails.staff_id.trim()) {
-      parts.push(`ID ${staffDetails.staff_id.trim()}`);
-    }
-    return `Examination staff (manual entry — not a portal account): ${parts.join(" · ")}`;
+    return `Examination staff: ${name}`;
   }
 
   function validate() {
@@ -892,8 +799,8 @@ export default function CreateCasePage() {
         errs.manual_roll = "Roll number is required.";
       } else if (roll.includes("@")) {
         errs.manual_roll = "Enter the roll number (e.g. 232430), not an email address.";
-      } else if (!/^[A-Za-z0-9][A-Za-z0-9\-_/]{1,49}$/.test(roll)) {
-        errs.manual_roll = "Roll number may contain only letters, digits, '-', '_' or '/'.";
+      } else if (!/^\d{6}$/.test(roll)) {
+        errs.manual_roll = "Roll number must be exactly 6 digits (e.g. 232430).";
       }
       if (!studentDetails.name.trim()) {
         errs.manual_name = "Student name is required.";
@@ -958,10 +865,43 @@ export default function CreateCasePage() {
     setConfirmOpen(true);
   }
 
+  function onLocalEvidenceChange(event) {
+    const files = Array.from(event.target.files || []);
+    const invalidFile = files.find((file) => {
+      const extension = file.name.split(".").pop()?.toLowerCase();
+      return (
+        !extension ||
+        !ALLOWED_EVIDENCE_EXTENSIONS.has(extension) ||
+        file.size > MAX_EVIDENCE_FILE_BYTES
+      );
+    });
+    if (invalidFile) {
+      const extension = invalidFile.name.split(".").pop()?.toLowerCase();
+      setError(
+        extension && ALLOWED_EVIDENCE_EXTENSIONS.has(extension)
+          ? `${invalidFile.name} is larger than the 50 MB upload limit.`
+          : `${invalidFile.name} has an unsupported file type.`
+      );
+      event.target.value = "";
+      return;
+    }
+    setError("");
+    setLocalEvidenceFiles(files);
+  }
+
   async function doSubmit() {
     setSubmitting(true);
+    setSubmissionStage("creating");
     setError("");
     try {
+      if (!CAN_CREATE.has(user?.role)) {
+        setError(
+          `Your account is currently assigned the ${user?.role || "unknown"} role. Only Invigilators can submit a UFM incident report.`
+        );
+        setConfirmOpen(false);
+        return;
+      }
+
       const staffNote = buildStaffRemarksNote();
       const remarksCombined = [form.remarks.trim(), staffNote]
         .filter(Boolean)
@@ -1018,9 +958,30 @@ export default function CreateCasePage() {
       }
 
       const created = await createCase(payload);
-      setSuccessMsg("UFM incident submitted successfully.");
+      setSubmissionStage("uploading");
+      const uploadResults = await Promise.all(
+        localEvidenceFiles.map(async (file) => {
+          const body = new FormData();
+          body.append("case_id", String(created.id));
+          body.append("evidence_type", localEvidenceType);
+          body.append("file", file);
+          try {
+            await uploadEvidence(body);
+            return null;
+          } catch (uploadError) {
+            return `${file.name}: ${uploadError.message || "upload failed"}`;
+          }
+        })
+      );
+      const failedEvidenceUploads = uploadResults.filter(Boolean);
       setConfirmOpen(false);
-      navigate(`/app/cases/${created.id}`);
+      navigate(`/app/cases/${created.id}`, {
+        state: failedEvidenceUploads.length
+          ? {
+              evidenceUploadWarning: `The UFM case was created, but these files could not be attached: ${failedEvidenceUploads.join("; ")}. You can upload them from the Evidence Library.`,
+            }
+          : undefined,
+      });
     } catch (err) {
       setError(err.message || "Could not create case");
       setConfirmOpen(false);
@@ -1053,7 +1014,7 @@ export default function CreateCasePage() {
   }
 
   const totalEvidenceCount =
-    evidenceItems.length + libraryEvidence.length;
+    evidenceItems.length + libraryEvidence.length + localEvidenceFiles.length;
 
   const reviewSummary = [
     displayedStudent?.name
@@ -1074,11 +1035,13 @@ export default function CreateCasePage() {
   const submitBlockedReason = examLoading
     ? "Loading examination details…"
     : submitting
-      ? "Submitting UFM report…"
+      ? submissionStage === "uploading"
+        ? "Attaching evidence…"
+        : "Creating UFM case…"
       : "";
 
   return (
-    <div className="ufm-official-form mx-auto max-w-3xl space-y-4 print:max-w-none">
+    <div className="ufm-official-form ufm-form-motion mx-auto max-w-3xl space-y-4 print:max-w-none">
       <div className="print:hidden">
         <PageHeader
           breadcrumb="Home / Cases / Report UFM Incident"
@@ -1090,7 +1053,7 @@ export default function CreateCasePage() {
       {error ? (
         <div
           id="ufm-form-error"
-          className="print:hidden rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+          className="ufm-feedback print:hidden rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
           role="alert"
         >
           <p className="font-semibold">Unable to submit UFM incident.</p>
@@ -1100,7 +1063,7 @@ export default function CreateCasePage() {
 
       {successMsg ? (
         <div
-          className="print:hidden rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+          className="ufm-feedback print:hidden rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
           role="status"
         >
           {successMsg}
@@ -1184,8 +1147,15 @@ export default function CreateCasePage() {
                 Roll number <span className="text-red-600">*</span>
               </span>
               <input
+                type="text"
                 className="portal-input w-full"
-                placeholder="e.g. 232430"
+                placeholder="e.g. 232430 (6 digits)"
+                pattern="\d{6}"
+                inputMode="numeric"
+                minLength={6}
+                maxLength={6}
+                required={!form.student_id}
+                title="Roll number must be exactly 6 digits (e.g. 232430)"
                 value={studentDetails.student_id}
                 onChange={(e) =>
                   onStudentFieldChange("student_id", e.target.value)
@@ -1203,7 +1173,11 @@ export default function CreateCasePage() {
                 Student name <span className="text-red-600">*</span>
               </span>
               <input
+                type="text"
                 className="portal-input w-full"
+                minLength={1}
+                maxLength={100}
+                required={!form.student_id}
                 value={studentDetails.name}
                 onChange={(e) => onStudentFieldChange("name", e.target.value)}
                 aria-invalid={Boolean(fieldErrors.manual_name)}
@@ -1219,7 +1193,11 @@ export default function CreateCasePage() {
                 Department <span className="text-red-600">*</span>
               </span>
               <input
+                type="text"
                 className="portal-input w-full"
+                minLength={1}
+                maxLength={100}
+                required={!form.student_id}
                 value={studentDetails.department}
                 onChange={(e) =>
                   onStudentFieldChange("department", e.target.value)
@@ -1237,7 +1215,11 @@ export default function CreateCasePage() {
                 Program <span className="text-red-600">*</span>
               </span>
               <input
+                type="text"
                 className="portal-input w-full"
+                minLength={1}
+                maxLength={100}
+                required={!form.student_id}
                 value={studentDetails.program}
                 onChange={(e) =>
                   onStudentFieldChange("program", e.target.value)
@@ -1305,7 +1287,11 @@ export default function CreateCasePage() {
                 Course code <span className="text-red-600">*</span>
               </span>
               <input
+                type="text"
                 className="portal-input w-full"
+                minLength={1}
+                maxLength={50}
+                required={!form.exam_id}
                 value={examDetails.course_code}
                 onChange={(e) =>
                   onExamFieldChange("course_code", e.target.value)
@@ -1322,7 +1308,11 @@ export default function CreateCasePage() {
                 Course name <span className="text-red-600">*</span>
               </span>
               <input
+                type="text"
                 className="portal-input w-full"
+                minLength={1}
+                maxLength={150}
+                required={!form.exam_id}
                 value={examDetails.course_name}
                 onChange={(e) =>
                   onExamFieldChange("course_name", e.target.value)
@@ -1339,7 +1329,11 @@ export default function CreateCasePage() {
                 Semester <span className="text-red-600">*</span>
               </span>
               <input
+                type="text"
                 className="portal-input w-full"
+                minLength={1}
+                maxLength={50}
+                required={!form.exam_id}
                 value={examDetails.semester}
                 onChange={(e) =>
                   onExamFieldChange("semester", e.target.value)
@@ -1358,6 +1352,7 @@ export default function CreateCasePage() {
               <input
                 type="date"
                 className="portal-input w-full"
+                required={!form.exam_id}
                 value={examDetails.exam_date}
                 onChange={(e) =>
                   onExamFieldChange("exam_date", e.target.value)
@@ -1397,6 +1392,7 @@ export default function CreateCasePage() {
               </span>
               <input
                 className="portal-input w-full"
+                required={!form.exam_id && !resolveManualRoomId()}
                 value={examDetails.room}
                 onChange={(e) => onExamFieldChange("room", e.target.value)}
                 placeholder="Enter room number (e.g. A-101)"
@@ -1420,40 +1416,6 @@ export default function CreateCasePage() {
             </p>
           </div>
 
-          {detectionCameraLocked ? (
-            <div className="mt-4">
-              <ReadOnlyField
-                label="Camera (from detection)"
-                value={selectedCameraLabel || "—"}
-              />
-              <p className="mt-1 text-xs text-slate-500">
-                Camera is taken from the linked detection and cannot be changed.
-              </p>
-            </div>
-          ) : (
-            <label className="mt-4 block">
-              <span className="portal-label">Camera</span>
-              <select
-                name="camera_id"
-                value={form.camera_id}
-                onChange={onChange}
-                disabled={!form.exam_id || roomCameras.length === 0}
-                className="portal-select w-full"
-              >
-                <option value="">
-                  {roomCameras.length === 0
-                    ? "No cameras registered for this exam room"
-                    : "Select camera (optional)…"}
-                </option>
-                {roomCameras.map((cam) => (
-                  <option key={cam.id} value={cam.id}>
-                    {cam.camera_id}
-                    {cam.name ? ` — ${cam.name}` : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
         </FormSection>
 
         {/* SECTION C — Incident details */}
@@ -1466,6 +1428,7 @@ export default function CreateCasePage() {
             <textarea
               name="description"
               required
+              maxLength={5000}
               rows={5}
               value={form.description}
               onChange={onChange}
@@ -1490,6 +1453,7 @@ export default function CreateCasePage() {
             <span className="portal-label">Additional remarks (optional)</span>
             <textarea
               name="remarks"
+              maxLength={5000}
               rows={2}
               value={form.remarks}
               onChange={onChange}
@@ -1543,6 +1507,8 @@ export default function CreateCasePage() {
               </span>
               <textarea
                 name="recovered_other_detail"
+                maxLength={2000}
+                required
                 rows={2}
                 value={form.recovered_other_detail}
                 onChange={onChange}
@@ -1568,12 +1534,6 @@ export default function CreateCasePage() {
 
         {/* SECTION E — Invigilator / staff */}
         <FormSection letter="E" title="Invigilator / Examination Staff Information">
-          <p className="mb-3 text-xs text-slate-600">
-            Reporting invigilator:{" "}
-            <strong>{user?.name}</strong> ({user?.email}). This does not
-            create or modify portal user accounts.
-          </p>
-
           <PortalSearchSelect
             label="Examination staff"
             placeholder="Search by name, email, or user ID…"
@@ -1583,20 +1543,17 @@ export default function CreateCasePage() {
             onClear={() => setSelectedStaffUserId("")}
             searchFn={searchStaff}
             getOptionKey={(s) => String(s.user_id)}
-            formatOptionLabel={(s) =>
-              `${s.user_name || "Staff"}${s.user_email ? ` · ${s.user_email}` : ""}`
-            }
+            formatOptionLabel={(s) => s.user_name || "Staff"}
             renderOption={(s) => (
               <div>
                 <p className="font-semibold text-slate-900">
                   {s.user_name || `User #${s.user_id}`}
                 </p>
-                <p className="text-xs text-slate-600">
-                  {[s.user_email, s.role].filter(Boolean).join(" · ")}
-                </p>
+                {s.role ? (
+                  <p className="text-xs text-slate-600">{s.role}</p>
+                ) : null}
               </div>
             )}
-            hint="Search to select staff (autofills below), or enter staff details manually. Manual values are recorded in case remarks only."
             emptyMessage="No staff found."
             loadingMessage="Searching staff…"
             minSearchLength={0}
@@ -1609,27 +1566,6 @@ export default function CreateCasePage() {
                 className="portal-input w-full"
                 value={staffDetails.name}
                 onChange={(e) => onStaffFieldChange("name", e.target.value)}
-              />
-            </label>
-            <label className="block">
-              <span className="portal-label">Email (optional)</span>
-              <input
-                type="email"
-                className="portal-input w-full"
-                value={staffDetails.email}
-                onChange={(e) => onStaffFieldChange("email", e.target.value)}
-              />
-            </label>
-            <label className="block">
-              <span className="portal-label">
-                Employee / staff ID (optional)
-              </span>
-              <input
-                className="portal-input w-full"
-                value={staffDetails.staff_id}
-                onChange={(e) =>
-                  onStaffFieldChange("staff_id", e.target.value)
-                }
               />
             </label>
             <label className="block">
@@ -1653,6 +1589,61 @@ export default function CreateCasePage() {
             >
               Attach from Evidence Library
             </button>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            <label className="block">
+              <span className="portal-label">Attach evidence from this PC</span>
+              <input
+                type="file"
+                multiple
+                accept={EVIDENCE_FILE_ACCEPT}
+                onChange={onLocalEvidenceChange}
+                className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+              />
+              <span className="mt-1 block text-xs text-slate-500">
+                Select one or more images, videos, or documents. Maximum 50 MB
+                per file.
+              </span>
+            </label>
+            {localEvidenceFiles.length > 0 ? (
+              <>
+                <label className="block max-w-md">
+                  <span className="portal-label">Evidence type</span>
+                  <select
+                    value={localEvidenceType}
+                    onChange={(event) => setLocalEvidenceType(event.target.value)}
+                    className="portal-select mt-1 w-full"
+                  >
+                    <option value="DOCUMENT">Document</option>
+                    <option value="SNAPSHOT">Snapshot / image</option>
+                    <option value="CLIP">Clip</option>
+                    <option value="VIDEO_CLIP">Video clip</option>
+                  </select>
+                </label>
+                <ul className="divide-y divide-slate-200 border border-slate-200">
+                  {localEvidenceFiles.map((file, index) => (
+                    <li
+                      key={`${file.name}-${file.lastModified}-${index}`}
+                      className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                    >
+                      <span className="min-w-0 truncate">{file.name}</span>
+                      <button
+                        type="button"
+                        className="shrink-0 text-xs font-semibold text-red-700 hover:underline"
+                        onClick={() =>
+                          setLocalEvidenceFiles((previous) =>
+                            previous.filter((_, fileIndex) => fileIndex !== index)
+                          )
+                        }
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
           </div>
 
           {libraryEvidence.length > 0 ? (
@@ -1845,6 +1836,7 @@ export default function CreateCasePage() {
                 name="signer_name"
                 required
                 minLength={2}
+                maxLength={150}
                 value={form.signer_name}
                 onChange={onChange}
                 className="portal-input w-full bg-white"
@@ -1861,6 +1853,7 @@ export default function CreateCasePage() {
               <input
                 type="checkbox"
                 name="signature_ack"
+                required
                 checked={form.signature_ack}
                 onChange={onChange}
                 className="mt-1 h-4 w-4 accent-au-blue"
@@ -1879,7 +1872,7 @@ export default function CreateCasePage() {
           </div>
         </FormSection>
 
-        <div className="space-y-2 border-t border-slate-300 bg-slate-50 px-4 py-4 print:hidden sm:px-6">
+        <div className="ufm-submit-bar space-y-2 border-t border-slate-300 bg-slate-50 px-4 py-4 print:hidden sm:px-6">
           <div
             id="ufm-submit-feedback"
             className="min-h-[1.25rem] text-sm"
@@ -1897,7 +1890,16 @@ export default function CreateCasePage() {
               disabled={submitting || examLoading}
               className="btn-primary"
             >
-              {submitting ? "Submitting UFM report..." : "Submit UFM Report"}
+              {submitting ? (
+                <>
+                  <span className="ufm-submit-spinner" aria-hidden="true" />
+                  {submissionStage === "uploading"
+                    ? "Attaching evidence..."
+                    : "Creating UFM case..."}
+                </>
+              ) : (
+                "Submit UFM Report"
+              )}
             </button>
             <button
               type="button"
@@ -1931,7 +1933,12 @@ export default function CreateCasePage() {
         open={confirmOpen}
         title="Confirm UFM report submission"
         message={`Please confirm before creating the UFM case: ${reviewSummary}`}
-        confirmLabel={submitting ? "Submitting..." : "Confirm & submit"}
+        confirmLabel="Confirm & submit"
+        busyLabel={
+          submissionStage === "uploading"
+            ? "Attaching evidence..."
+            : "Creating case..."
+        }
         cancelLabel="Back to form"
         tone="primary"
         busy={submitting}

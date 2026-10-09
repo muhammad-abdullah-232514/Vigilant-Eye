@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import LoadingState from "../components/LoadingState";
 import PageHeader from "../components/PageHeader";
@@ -22,6 +22,7 @@ const ALL_ROLES = [
   "EXAM_DEPARTMENT",
   "UFM_COMMITTEE",
 ];
+const STUDENT_EMAIL_DOMAIN = "@students.au.edu.pk";
 
 const ROLE_BADGE = {
   ADMINISTRATOR: "bg-violet-50 text-violet-900",
@@ -100,13 +101,16 @@ export default function AdminUsersPage() {
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [createError, setCreateError] = useState("");
+  const createErrorRef = useRef(null);
   const [editUser, setEditUser] = useState(null);
   const [form, setForm] = useState({
     email: "",
     name: "",
     role: "STUDENT",
     student_roll: "",
-    is_active: true,
+    department: "",
+    program: "",
   });
 
   function clearFilters() {
@@ -154,6 +158,7 @@ export default function AdminUsersPage() {
   useEffect(() => {
     if (searchParams.get("create") === "1") {
       setCreateOpen(true);
+      setCreateError("");
       searchParams.delete("create");
       setSearchParams(searchParams, { replace: true });
     }
@@ -180,16 +185,23 @@ export default function AdminUsersPage() {
   async function onCreate(e) {
     e.preventDefault();
     setBusy(true);
-    setError("");
+    setCreateError("");
     setMessage("");
     try {
       const payload = {
-        email: form.email.trim(),
+        email:
+          form.role === "STUDENT"
+            ? `${form.student_roll.trim()}${STUDENT_EMAIL_DOMAIN}`
+            : form.email.trim(),
         role: form.role,
         name: form.name.trim() || undefined,
         student_roll:
           form.role === "STUDENT" ? form.student_roll.trim() || undefined : undefined,
-        is_active: Boolean(form.is_active),
+        department:
+          form.role === "STUDENT" ? form.department.trim() || undefined : undefined,
+        program:
+          form.role === "STUDENT" ? form.program.trim() || undefined : undefined,
+        is_active: true,
       };
       const created = await createAdminUser(payload);
       setMessage(`Created ${created.email} as ${created.role}.`);
@@ -199,11 +211,19 @@ export default function AdminUsersPage() {
         name: "",
         role: "STUDENT",
         student_roll: "",
-        is_active: true,
+        department: "",
+        program: "",
       });
       await load();
     } catch (err) {
-      setError(err.message || "Create failed");
+      setCreateError(err.message || "Create failed");
+      requestAnimationFrame(() => {
+        createErrorRef.current?.focus();
+        createErrorRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
+      });
     } finally {
       setBusy(false);
     }
@@ -309,7 +329,7 @@ export default function AdminUsersPage() {
           </select>
         </label>
         <label className="text-sm">
-          <span className="mb-1 block text-slate-600">Kind</span>
+          <span className="mb-1 block text-slate-600">Category</span>
           <select
             className={inputClass}
             value={kind}
@@ -348,7 +368,10 @@ export default function AdminUsersPage() {
         <button
           type="button"
           className="rounded-lg bg-au-navy px-4 py-2.5 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-au-navy"
-          onClick={() => setCreateOpen(true)}
+          onClick={() => {
+            setCreateError("");
+            setCreateOpen(true);
+          }}
         >
           + Add User
         </button>
@@ -399,6 +422,8 @@ export default function AdminUsersPage() {
                           newRole: u.role,
                           newName: u.name,
                           newRoll: u.student_roll || "",
+                          newDepartment: u.department || "",
+                          newProgram: u.program || "",
                         })
                       }
                     >
@@ -475,6 +500,8 @@ export default function AdminUsersPage() {
                                 newRole: u.role,
                                 newName: u.name,
                                 newRoll: u.student_roll || "",
+                                newDepartment: u.department || "",
+                                newProgram: u.program || "",
                               })
                             }
                           >
@@ -518,42 +545,19 @@ export default function AdminUsersPage() {
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4">
           <form
             onSubmit={onCreate}
-            className="w-full max-w-xl space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-lg"
+            className="max-h-[90vh] w-full max-w-xl space-y-3 overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-lg"
           >
             <h3 className="text-lg font-semibold text-au-navy">Add User</h3>
-            <div className="max-h-40 overflow-y-auto rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 text-sm text-sky-950">
-              <p className="font-semibold">Google account onboarding</p>
-              <ol className="mt-1 list-decimal space-y-0.5 pl-4 text-xs leading-relaxed">
-                <li>Enter the user’s exact Google email.</li>
-                <li>Assign the VigilantEye portal role.</li>
-                <li>Save — the email becomes an authorized portal account.</li>
-                <li>No portal password is created or emailed.</li>
-                <li>The user opens the portal login page.</li>
-                <li>They click <strong>Continue with Google</strong>.</li>
-                <li>They must sign in with that exact Google email.</li>
-                <li>The portal finds the matching User record.</li>
-                <li>Access follows the database role (not Google claims).</li>
-                <li>They land on the dashboard for that role.</li>
-              </ol>
-            </div>
-            <label className="block text-sm">
-              Name
-              <input
-                className={`${inputClass} mt-1`}
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              />
-            </label>
-            <label className="block text-sm">
-              Email
-              <input
-                required
-                type="email"
-                className={`${inputClass} mt-1`}
-                value={form.email}
-                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-              />
-            </label>
+            {createError ? (
+              <div
+                ref={createErrorRef}
+                role="alert"
+                tabIndex={-1}
+                className="sticky top-0 z-10 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-800 shadow-sm focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-red-700"
+              >
+                {createError}
+              </div>
+            ) : null}
             <label className="block text-sm">
               Role
               <select
@@ -569,31 +573,101 @@ export default function AdminUsersPage() {
                 ))}
               </select>
             </label>
-            <label className="flex items-center gap-2 text-sm">
+            <label className="block text-sm">
+              Name
               <input
-                type="checkbox"
-                checked={form.is_active}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, is_active: e.target.checked }))
-                }
+                maxLength={100}
+                className={`${inputClass} mt-1`}
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               />
-              Active (unchecked creates an inactive account that cannot sign in)
             </label>
-            {form.role === "STUDENT" ? (
-              <label className="block text-sm">
-                Student roll (link existing or create student record)
+            <label className="block text-sm">
+              Email
+              {form.role === "STUDENT" ? (
+                <div className="mt-1 flex w-full items-center rounded-xl border border-slate-300 bg-slate-50 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-au-navy">
+                  <input
+                    required
+                    type="text"
+                    inputMode="numeric"
+                    pattern="\d{6}"
+                    maxLength={6}
+                    aria-label="Student email roll number"
+                    className="min-w-0 flex-1 rounded-l-xl bg-transparent px-3 py-2.5 text-sm outline-none focus-visible:ring-0"
+                    value={form.student_roll}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        student_roll: e.target.value,
+                      }))
+                    }
+                  />
+                  <span className="whitespace-nowrap pr-3 text-sm text-slate-600">
+                    {STUDENT_EMAIL_DOMAIN}
+                  </span>
+                </div>
+              ) : (
                 <input
                   required
-                  pattern="[A-Za-z0-9][A-Za-z0-9\-_\/]{1,49}"
-                  title="Roll number (e.g. 232430) — letters, digits, '-', '_' or '/'; not an email address"
-                  placeholder="e.g. 232430 (roll number, not email)"
+                  type="email"
                   className={`${inputClass} mt-1`}
-                  value={form.student_roll}
+                  value={form.email}
                   onChange={(e) =>
-                    setForm((f) => ({ ...f, student_roll: e.target.value }))
+                    setForm((f) => ({ ...f, email: e.target.value }))
                   }
                 />
-              </label>
+              )}
+            </label>
+            {form.role === "STUDENT" ? (
+              <>
+                <label className="block text-sm">
+                  Roll Number
+                  <input
+                    required
+                    pattern="\d{6}"
+                    inputMode="numeric"
+                    maxLength={6}
+                    title="Roll number must be exactly 6 digits (e.g. 232430)"
+                    placeholder="e.g. 232950"
+                    className={`${inputClass} mt-1`}
+                    value={form.student_roll}
+                    onChange={(e) => {
+                      const studentRoll = e.target.value;
+                      setForm((f) => ({ ...f, student_roll: studentRoll }));
+                    }}
+                  />
+                </label>
+                <label className="block text-sm">
+                  Department
+                  <input
+                    required
+                    minLength={1}
+                    maxLength={100}
+                    pattern=".*\S.*"
+                    placeholder="e.g. Computer Science"
+                    className={`${inputClass} mt-1`}
+                    value={form.department}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, department: e.target.value }))
+                    }
+                  />
+                </label>
+                <label className="block text-sm">
+                  Program
+                  <input
+                    required
+                    minLength={1}
+                    maxLength={100}
+                    pattern=".*\S.*"
+                    placeholder="e.g. BSCS"
+                    className={`${inputClass} mt-1`}
+                    value={form.program}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, program: e.target.value }))
+                    }
+                  />
+                </label>
+              </>
             ) : (
               <p className="text-xs text-slate-500">
                 Staff roles do not require a student record link.
@@ -603,7 +677,10 @@ export default function AdminUsersPage() {
               <button
                 type="button"
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                onClick={() => setCreateOpen(false)}
+                onClick={() => {
+                  setCreateOpen(false);
+                  setCreateError("");
+                }}
                 disabled={busy}
               >
                 Cancel
@@ -622,7 +699,10 @@ export default function AdminUsersPage() {
 
       {editUser ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-lg space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-lg">
+          <form
+            onSubmit={(event) => event.preventDefault()}
+            className="max-h-[90vh] w-full max-w-lg space-y-3 overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-lg"
+          >
             <h3 className="text-lg font-semibold text-au-navy">Edit user</h3>
             <label className="block text-sm">
               Email (read-only)
@@ -640,6 +720,10 @@ export default function AdminUsersPage() {
             <label className="block text-sm">
               Name
               <input
+                required={Boolean(editUser.newRoll.trim())}
+                minLength={1}
+                maxLength={100}
+                pattern=".*\S.*"
                 className={`${inputClass} mt-1`}
                 value={editUser.newName}
                 onChange={(e) =>
@@ -664,22 +748,60 @@ export default function AdminUsersPage() {
               </select>
             </label>
             {editUser.newRole === "STUDENT" ? (
-              <label className="block text-sm">
-                Student roll
-                <input
-                  className={`${inputClass} mt-1`}
-                  value={editUser.newRoll}
-                  onChange={(e) =>
-                    setEditUser((u) => ({ ...u, newRoll: e.target.value }))
-                  }
-                />
-              </label>
+              <>
+                <label className="block text-sm">
+                  Student roll
+                  <input
+                    pattern="\d{6}"
+                    inputMode="numeric"
+                    maxLength={6}
+                    title="Leave blank to unlink, or enter a 6-digit student roll"
+                    className={`${inputClass} mt-1`}
+                    value={editUser.newRoll}
+                    onChange={(e) =>
+                      setEditUser((u) => ({ ...u, newRoll: e.target.value }))
+                    }
+                  />
+                </label>
+                <label className="block text-sm">
+                  Department
+                  <input
+                    required={Boolean(editUser.newRoll.trim())}
+                    minLength={1}
+                    maxLength={100}
+                    pattern=".*\S.*"
+                    className={`${inputClass} mt-1`}
+                    value={editUser.newDepartment}
+                    onChange={(e) =>
+                      setEditUser((u) => ({
+                        ...u,
+                        newDepartment: e.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label className="block text-sm">
+                  Program
+                  <input
+                    required
+                    minLength={1}
+                    maxLength={100}
+                    pattern=".*\S.*"
+                    className={`${inputClass} mt-1`}
+                    value={editUser.newProgram}
+                    onChange={(e) =>
+                      setEditUser((u) => ({ ...u, newProgram: e.target.value }))
+                    }
+                  />
+                </label>
+              </>
             ) : null}
             <div className="flex flex-wrap gap-2 pt-2">
               <button
                 type="button"
                 className="rounded-lg bg-au-navy px-3 py-2 text-sm font-semibold text-white"
-                onClick={() => {
+                onClick={(event) => {
+                  if (!event.currentTarget.form?.reportValidity()) return;
                   const roleChanging = editUser.newRole !== editUser.role;
                   setConfirm({
                     title: roleChanging ? "Change role?" : "Save user changes?",
@@ -695,6 +817,10 @@ export default function AdminUsersPage() {
                       }
                       if (editUser.newRole === "STUDENT") {
                         payload.student_roll = editUser.newRoll.trim();
+                        if (editUser.newRoll.trim()) {
+                          payload.department = editUser.newDepartment.trim();
+                          payload.program = editUser.newProgram.trim();
+                        }
                       } else if (editUser.student_roll) {
                         payload.unlink_student = true;
                       }
@@ -764,7 +890,7 @@ export default function AdminUsersPage() {
                 Close
               </button>
             </div>
-          </div>
+          </form>
         </div>
       ) : null}
 
